@@ -72,9 +72,15 @@ public class TradeService {
      *
      * <p>库存扣减用条件更新，影响行数为 0 就是"卖完了"：
      * 不需要先查再判断，也就没有"查的时候有货、写的时候没了"的窗口。
+     *
+     * <p>注意这里每个公开重载都标了 {@code @Transactional}：
+     * Spring 的事务是<b>代理</b>实现的，同类内部调用（this.createOrder(...)）
+     * 不会经过代理，也就不会开事务。把每个入口都标上，才能保证
+     * 无论从哪个重载进来都在事务里。
      */
+    @Transactional(rollbackFor = Exception.class)
     public OrderVO createOrder(Long userId, Long skuId, int quantity) {
-        return createOrder(userId, skuId, quantity, null);
+        return createOrder(userId, skuId, quantity, null, OrderBizType.NORMAL);
     }
 
     /**
@@ -85,6 +91,12 @@ public class TradeService {
      */
     @Transactional(rollbackFor = Exception.class)
     public OrderVO createOrder(Long userId, Long skuId, int quantity, Long couponId) {
+        return createOrder(userId, skuId, quantity, couponId, OrderBizType.NORMAL);
+    }
+
+    /** 下单（指定订单来源：普通 / 拼团）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public OrderVO createOrder(Long userId, Long skuId, int quantity, Long couponId, OrderBizType bizType) {
         Sku sku = skuMapper.selectById(skuId);
         if (sku == null || !Integer.valueOf(1).equals(sku.getStatus())) {
             throw new BusinessException(ResultCode.SKU_NOT_FOUND);
@@ -107,7 +119,7 @@ public class TradeService {
         Order order = new Order();
         order.setOrderNo(orderNo);
         order.setUserId(userId);
-        order.setBizType(OrderBizType.NORMAL.getCode());
+        order.setBizType(bizType.getCode());
         order.setSkuId(skuId);
         order.setProductId(sku.getProductId());
         order.setProductTitle(product == null ? sku.getSkuCode() : product.getTitle());

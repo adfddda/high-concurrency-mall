@@ -288,6 +288,9 @@ mall:
     order-expire: ${TRADE_ORDER_EXPIRE:30m}
     # 发货后 N 天自动确认收货（影响商家结算与售后时效）
     auto-confirm-days: ${TRADE_AUTO_CONFIRM_DAYS:7}
+    # 拼团：3 人成团，24 小时内未凑满自动失败并退款
+    group-required-members: ${GROUP_REQUIRED_MEMBERS:3}
+    group-expire: ${GROUP_EXPIRE:24h}
 
   # 秒杀风控：限流挡"量"，风控挡"人"。
   risk:

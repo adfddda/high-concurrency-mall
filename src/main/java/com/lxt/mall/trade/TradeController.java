@@ -6,6 +6,7 @@ import com.lxt.mall.order.dto.OrderVO;
 import com.lxt.mall.trade.dto.CreateOrderRequest;
 import com.lxt.mall.trade.dto.CartItemVO;
 import com.lxt.mall.trade.dto.CouponVO;
+import com.lxt.mall.trade.dto.GroupBuyVO;
 import com.lxt.mall.trade.dto.PaymentVO;
 import com.lxt.mall.trade.dto.RefundVO;
 import com.lxt.mall.trade.dto.SkuVO;
@@ -41,6 +42,7 @@ public class TradeController {
     private final RefundService refundService;
     private final CartService cartService;
     private final CouponService couponService;
+    private final GroupBuyService groupBuyService;
 
     /** 商品的可售 SKU 列表（公开接口）。 */
     @GetMapping("/skus")
@@ -138,5 +140,30 @@ public class TradeController {
                                    @RequestParam(required = false) String reason) {
         return Result.ok(refundService.refund(
                 orderNo, reason == null ? "用户申请退款" : reason, UserContext.requireUserId()));
+    }
+
+    // ========================================================================
+    // 拼团
+    // ========================================================================
+
+    /** 开团（团长自动成为第一个成员，并生成一笔待支付订单）。 */
+    @PostMapping("/group-buy")
+    public Result<GroupBuyService.GroupBuyResult> openGroup(
+            @RequestParam Long skuId, @RequestParam(defaultValue = "1") int quantity) {
+        return Result.ok(groupBuyService.open(UserContext.requireUserId(), skuId, quantity));
+    }
+
+    /** 参团（生成自己的待支付订单）。 */
+    @PostMapping("/group-buy/{groupId}/join")
+    public Result<GroupBuyService.GroupBuyResult> joinGroup(
+            @PathVariable Long groupId, @RequestParam(defaultValue = "1") int quantity) {
+        return Result.ok(groupBuyService.join(UserContext.requireUserId(), groupId, quantity));
+    }
+
+    /** 团详情：进度、成员、状态。 */
+    @GetMapping("/group-buy/{groupId}")
+    public Result<GroupBuyVO> groupDetail(@PathVariable Long groupId) {
+        GroupBuyService.GroupBuyDetail detail = groupBuyService.detail(groupId);
+        return Result.ok(GroupBuyVO.from(detail.group(), detail.members()));
     }
 }

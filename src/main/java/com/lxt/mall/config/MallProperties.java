@@ -233,6 +233,12 @@ public class MallProperties {
          * 真实业务里通常按类目配置（虚拟商品立即确认、生鲜 1 天、普通商品 7~15 天）。
          */
         private int autoConfirmDays = 7;
+
+        /** 拼团成团所需人数。 */
+        private int groupRequiredMembers = 3;
+
+        /** 拼团有效期：到期未凑满则失败并退款。 */
+        private Duration groupExpire = Duration.ofHours(24);
     }
 
     @Data

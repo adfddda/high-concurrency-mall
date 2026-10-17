@@ -18,7 +18,9 @@ import com.baomidou.mybatisplus.annotation.EnumValue;
 public enum OrderBizType {
 
     SECKILL(0, "秒杀"),
-    NORMAL(1, "普通");
+    NORMAL(1, "普通"),
+    /** 拼团：同样走同步扣库存，但多了一层"成团"状态约束。 */
+    GROUP(2, "拼团");
 
     @EnumValue
     private final int code;

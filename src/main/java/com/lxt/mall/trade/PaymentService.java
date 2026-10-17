@@ -6,6 +6,7 @@ import com.lxt.mall.common.api.ResultCode;
 import com.lxt.mall.common.exception.BusinessException;
 import com.lxt.mall.domain.entity.Order;
 import com.lxt.mall.domain.entity.Payment;
+import com.lxt.mall.domain.enums.OrderBizType;
 import com.lxt.mall.domain.enums.OrderStatus;
 import com.lxt.mall.domain.enums.PaymentStatus;
 import com.lxt.mall.domain.mapper.OrderMapper;
@@ -50,6 +51,7 @@ public class PaymentService {
     private final PaymentMapper paymentMapper;
     private final OrderMapper orderMapper;
     private final OrderService orderService;
+    private final GroupBuyService groupBuyService;
     private final Clock clock;
 
     /** 发起支付：创建（或复用）支付单。 */
@@ -137,6 +139,15 @@ public class PaymentService {
             log.error("支付成功但订单已不可支付，需人工退款 paymentNo={} orderNo={}",
                     paymentNo, payment.getOrderNo(), e);
             throw e;
+        }
+
+        // 拼团订单：支付成功要推进"成团"判定。
+        // 放在这里而不是订单状态机里，是因为"成团"是拼团域的概念，
+        // 订单本身不知道自己属于哪个团。
+        Order paidOrder = orderMapper.selectOne(
+                Wrappers.<Order>lambdaQuery().eq(Order::getOrderNo, payment.getOrderNo()));
+        if (paidOrder != null && OrderBizType.of(paidOrder.getBizType()) == OrderBizType.GROUP) {
+            groupBuyService.onMemberPaid(payment.getOrderNo());
         }
         return true;
     }

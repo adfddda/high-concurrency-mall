@@ -225,6 +225,59 @@ CREATE TABLE IF NOT EXISTS t_seckill_risk_hit
   COLLATE = utf8mb4_general_ci COMMENT ='秒杀风控命中记录';
 
 
+-- ============================================================================
+--  拼团
+--
+--  业务本质是"用人数换价格"：一个人开团，凑够 N 人才能成团。
+--  技术上要解决两件事：
+--   1. <b>成团判定</b>：第 N 个成员支付成功的瞬间要把团置为"已成团"，
+--      而且只能有一次判定成功——用带前驱状态的条件更新保证；
+--   2. <b>未成团退款</b>：到期仍未凑满，已付款的要退钱、未付款的要关单、
+--      库存要还回去。这是一条必须由定时任务兜底的链路。
+--
+--  paid_count 是冗余字段，但它让"是否成团"变成一次原子自增，
+--  不需要每次支付都去 COUNT 成员表（那是 O(N) 的读放大）。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_group_buy
+(
+    id               BIGINT UNSIGNED NOT NULL COMMENT '团ID（雪花）',
+    leader_user_id   BIGINT UNSIGNED NOT NULL COMMENT '团长',
+    sku_id           BIGINT UNSIGNED NOT NULL,
+    required_members INT             NOT NULL COMMENT '成团所需人数',
+    paid_count       INT             NOT NULL DEFAULT 0 COMMENT '已支付人数',
+    status           TINYINT         NOT NULL DEFAULT 0 COMMENT '0 进行中 1 已成团 2 已失败',
+    expire_time      DATETIME(3)     NOT NULL COMMENT '凑不够人则到期失败',
+    complete_time    DATETIME(3)              DEFAULT NULL,
+    create_time      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_status_expire (status, expire_time),
+    KEY idx_sku (sku_id),
+    CONSTRAINT ck_group_paid_non_negative CHECK (paid_count >= 0)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='拼团';
+
+
+CREATE TABLE IF NOT EXISTS t_group_buy_member
+(
+    id          BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    group_id    BIGINT UNSIGNED NOT NULL,
+    user_id     BIGINT UNSIGNED NOT NULL,
+    order_no    VARCHAR(32)     NOT NULL COMMENT '该成员对应的订单',
+    status      TINYINT         NOT NULL DEFAULT 0 COMMENT '0 待支付 1 已支付 2 已退款',
+    create_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    -- 一个人在一个团里只能占一个位置
+    UNIQUE KEY uk_group_user (group_id, user_id),
+    UNIQUE KEY uk_order_no (order_no),
+    KEY idx_group (group_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='拼团成员';
+
+
 CREATE TABLE IF NOT EXISTS t_order
 (
     id            BIGINT UNSIGNED NOT NULL COMMENT '订单ID（雪花）',

@@ -91,3 +91,5 @@ mall:
       enabled: false
     seckill-draw:
       enabled: false
+    group-buy-expire:
+      enabled: false

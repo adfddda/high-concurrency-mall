@@ -65,7 +65,11 @@ public enum ResultCode {
     COUPON_SOLD_OUT(30041, "优惠券已领完"),
     COUPON_ALREADY_CLAIMED(30042, "您已领取过该优惠券"),
     COUPON_THRESHOLD_NOT_MET(30043, "订单金额未达到优惠券使用门槛"),
-    COUPON_UNAVAILABLE(30044, "优惠券不可用或已被使用");
+    COUPON_UNAVAILABLE(30044, "优惠券不可用或已被使用"),
+    GROUP_NOT_FOUND(30050, "拼团不存在"),
+    GROUP_ALREADY_JOINED(30051, "您已参加过该拼团"),
+    GROUP_CLOSED(30052, "该拼团已结束"),
+    GROUP_EXPIRED(30053, "该拼团已过期");
 
     private final int code;
     private final String message;
