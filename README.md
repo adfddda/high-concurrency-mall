@@ -248,6 +248,9 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 
 ### 运维可观测 `/api/admin`
 
+> ⚠️ 需要**管理员身份**（`mall.admin.usernames` 白名单，默认 `lxt`）。
+> 这些接口能改写 Redis 库存、触发对账修复，属于高危操作，普通登录用户一律 403。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/cache/product/stats` | L1 命中率统计 |
@@ -336,6 +339,7 @@ mvn test
 | **[04-压测报告](docs/04-benchmark.md)** | 实测 QPS / 延迟分位 / 缓存命中分布 / **MQ 故障演练** / 测量偏差说明 | 想看数据 |
 | **[05-踩坑记录](docs/05-pitfalls.md)** | **13 个真实踩到的坑**，含定位过程与反思 | **面试最能加分的一份** |
 | **[06-简历描述](docs/06-resume.md)** | STAR 结构的项目描述 + 可能的追问方向 | 写简历 |
+| **[12-加固记录](docs/12-hardening.md)** | **9 个"测试全绿但逻辑确实错了"的缺陷**：怎么发现、为什么危险、怎么修 | **最能体现工程严谨性的一份** |
 
 ---
 
@@ -343,7 +347,7 @@ mvn test
 
 | 类别 | 选型 | 为什么是它 |
 |---|---|---|
-| 语言 / 运行时 | Java 21 | 虚拟线程（压测与并发测试）、`record`、模式匹配 `switch` |
+| 语言 / 运行时 | Java 21 | 虚拟线程（Web 层已开启，压测与并发测试也用）、`record`、模式匹配 `switch` |
 | 框架 | Spring Boot 3.5 | — |
 | 持久层 | MyBatis-Plus 3.5.9 | 分页 / 乐观锁 / **防全表更新删除**插件；比 JPA 更贴近 SQL，性能更可控 |
 | 数据库 | MySQL 8.0 | 唯一索引 + `CHECK` 约束是最后一道防线 |
@@ -353,6 +357,7 @@ mvn test
 | 令牌 | jjwt 0.12 | — |
 | 密码 | spring-security-crypto | 只用 `BCryptPasswordEncoder`，不引入整个 Security |
 | 监控 | Micrometer + Prometheus | 业务埋点（缓存命中率、Lua 耗时、MQ 事件） |
+| 链路追踪 | **OpenTelemetry + Jaeger** | `traceId` 贯穿 HTTP → MQ → 消费端，日志已带 `%X{traceId}` |
 | 编排 | Docker Compose | 一键起全套 + 多阶段构建镜像 |
 
 ---
@@ -409,7 +414,7 @@ src/main/resources/
 | 缓存失效靠应用层 | 接 **Canal 订阅 binlog**，覆盖"有人直接改库"的场景 |
 | 秒杀消息台账在内存 | 对可靠性要求更高的场景换成 **本地消息表（Outbox）** |
 | 无分库分表 | 订单按 `user_id` 分片（雪花 ID 已保证全局唯一） |
-| 无链路追踪 | 接入 **SkyWalking / OpenTelemetry**，补上跨服务 TraceId |
+| 链路追踪只到进程级 | 已接入 OpenTelemetry + Jaeger；下一步是把 MQ 消费纳入统一 sampling 策略 |
 | 无服务注册发现 | Nacos + Gateway + Sentinel（限流可下沉到网关层） |
 | 库存对账每 5 分钟一次 | 提升为事件驱动 + 实时告警 |
 | 未做全链路压测 | 用 JMeter/Gatling 做分布式压测，排除压测机瓶颈 |
