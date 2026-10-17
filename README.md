@@ -15,6 +15,41 @@
 
 ---
 
+## 系统全景
+
+```mermaid
+flowchart LR
+    C["客户端 / k6 压测"] --> GW["Spring Cloud Gateway<br/>限流下沉 · X-Request-Id"]
+    GW --> APP
+
+    subgraph APP["业务服务（Spring Boot 3 · Java 21 · 虚拟线程）"]
+        direction TB
+        SK["秒杀域<br/>三级漏斗 · 抽签 · 设备风控"]
+        TR["交易域<br/>SKU · 购物车 · 优惠券 · 拼团"]
+        PY["支付 · 退款 · 履约"]
+        PC["商品多级缓存"]
+        SE["商品搜索"]
+    end
+
+    APP --> DB[("MySQL 8<br/>权威数据")]
+    APP --> RD[("Redis<br/>库存 / 缓存 / 限流 / 资格码")]
+    APP --> MQ[("RabbitMQ<br/>削峰 · 延迟关单 · 死信")]
+    SE -. "ES 不可用时降级" .-> DB
+    SE --> ES[("Elasticsearch")]
+    APP -. 指标 / 链路 .-> OBS["Prometheus · Grafana · Jaeger"]
+```
+
+**四条不能违反的规则**（它们决定了上面每个箭头的方向）：
+
+| 规则 | 体现 |
+|---|---|
+| **数据库是权威，Redis 是可重建投影** | 对账永远把 Redis 对齐到 DB，而不是反过来 |
+| **消息负责"快"，扫描任务负责"不漏"** | 延迟关单 + 每分钟兜底扫描；拼团到期 + 定时任务 |
+| **不确定时选择可恢复的那一侧** | 宁可少卖（可对账修复），绝不超卖（资损） |
+| **降级必须是显式的** | ES 挂了走 DB 但记 WARN；限流挂了 fail-open 并计数 |
+
+---
+
 ## 系统规模
 
 | 维度 | 规模 |
