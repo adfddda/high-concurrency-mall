@@ -299,6 +299,10 @@ CREATE TABLE IF NOT EXISTS t_order
     discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00 COMMENT '优惠金额',
     status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已取消 3已完成 4已退款 5已发货',
     message_id    VARCHAR(64)              DEFAULT NULL COMMENT '创建该订单的 MQ 消息ID（普通订单为 NULL）',
+    -- 有效期标记：1 = 有效订单，NULL = 已失效（取消/退款）。
+    -- 唯一索引 uk_user_activity 带上这一列，"一人一单"就变成
+    -- "同一活动同时只能有一笔有效订单"——取消后可以重新抢，但历史订单不会被删除。
+    active_flag   TINYINT                  DEFAULT 1 COMMENT '1 有效 NULL 已失效（取消/退款）',
     pay_time      DATETIME(3)              DEFAULT NULL,
     cancel_time   DATETIME(3)              DEFAULT NULL,
     ship_time     DATETIME(3)              DEFAULT NULL COMMENT '发货时间，自动确认收货的计时起点',
@@ -309,9 +313,10 @@ CREATE TABLE IF NOT EXISTS t_order
     PRIMARY KEY (id),
     UNIQUE KEY uk_order_no (order_no),
     -- 一人一单：Redis 的 Set 判定只是「准入闸门」，真正的强约束在数据库。
-    -- 注意 MySQL 的唯一索引允许多个 NULL：普通订单 activity_id 为 NULL，
-    -- 因此不受这条约束影响，同一个用户可以对同一个 SKU 下多单。
-    UNIQUE KEY uk_user_activity (user_id, activity_id),
+    -- 注意 MySQL 的唯一索引允许多个 NULL：
+    --   · activity_id 为 NULL 的普通订单不受此约束；
+    --   · active_flag 为 NULL 的已取消/已退款订单也不受约束（允许再买）。
+    UNIQUE KEY uk_user_activity (user_id, activity_id, active_flag),
     -- 消息幂等：同一消息重复投递时，第二条 INSERT 直接撞唯一键，天然去重
     UNIQUE KEY uk_message_id (message_id),
     KEY idx_status_expire (status, expire_time),

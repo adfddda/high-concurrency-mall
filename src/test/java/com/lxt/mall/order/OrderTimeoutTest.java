@@ -223,4 +223,36 @@ class OrderTimeoutTest extends BaseIntegrationTest {
                 .extracting(Order::getOrderNo)
                 .contains(message.getOrderNo());
     }
+
+    @Test
+    @DisplayName("取消后可以重新抢：唯一索引与 Redis 购买资格都必须释放")
+    void cancelAllowsRepurchase() {
+        int totalStock = 5;
+        long userId = 700_010L;
+        prepareActivity(ACTIVITY_ID, totalStock);
+        preheatService.preheat(ACTIVITY_ID);
+
+        assertThat(stockService.deduct(ACTIVITY_ID, userId))
+                .isEqualTo(com.lxt.mall.seckill.SeckillDeductResult.SUCCESS);
+        SeckillOrderMessage first = createOrder(userId);
+
+        OrderService.CancelResult result = orderService.cancelIfUnpaid(first.getOrderNo(), "用户取消");
+        assertThat(result.canceled()).isTrue();
+
+        // 这一步由 OrderController 在事务提交后执行（这里直接调用以验证语义）
+        stockService.rollback(result.activityId(), result.userId(),
+                result.totalStock() == null ? totalStock : result.totalStock(),
+                true, false);
+
+        // Redis 侧：不再是"重复购买"
+        assertThat(stockService.deduct(ACTIVITY_ID, userId))
+                .as("取消后应释放购买资格")
+                .isEqualTo(com.lxt.mall.seckill.SeckillDeductResult.SUCCESS);
+
+        // 数据库侧：uk_user_activity 不再拦截（取消订单的 active_flag 已置 NULL）
+        SeckillOrderMessage second = createOrder(userId);
+        assertThat(orderService.findByOrderNo(second.getOrderNo()).getStatus())
+                .as("取消后应能再次下单")
+                .isEqualTo(OrderStatus.CREATED);
+    }
 }

@@ -73,6 +73,14 @@ public class Order implements Serializable {
 
     private String messageId;
 
+    /**
+     * 有效期标记：1 = 有效，null = 已失效（取消/退款）。
+     *
+     * <p>它是"一人一单"唯一索引的一部分：取消后置 null，用户就能重新抢，
+     * 而历史订单仍然保留可查。用"删订单"来实现同样效果会丢失订单历史。
+     */
+    private Integer activeFlag;
+
     private LocalDateTime payTime;
 
     private LocalDateTime cancelTime;

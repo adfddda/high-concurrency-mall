@@ -46,7 +46,7 @@ public interface OrderMapper extends BaseMapper<Order> {
      */
     @Update("""
             UPDATE t_order
-               SET status = 2, cancel_time = #{cancelTime}
+               SET status = 2, cancel_time = #{cancelTime}, active_flag = NULL
              WHERE order_no = #{orderNo}
                AND status = 0
             """)
@@ -71,7 +71,7 @@ public interface OrderMapper extends BaseMapper<Order> {
      */
     @Update("""
             UPDATE t_order
-               SET status = 4
+               SET status = 4, active_flag = NULL
              WHERE order_no = #{orderNo}
                AND status = 1
             """)

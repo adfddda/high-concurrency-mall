@@ -19,6 +19,7 @@ public class OrderController {
 
     private final OrderService orderService;
     private final FulfillmentService fulfillmentService;
+    private final com.lxt.mall.seckill.SeckillStockService stockService;
 
     /**
      * 订单详情。
@@ -47,11 +48,28 @@ public class OrderController {
         return Result.ok();
     }
 
-    /** 用户主动取消（未支付订单）。 */
+    /**
+     * 用户主动取消（未支付订单）。
+     *
+     * <p>取消要同时做三件事，缺一不可：
+     * <ol>
+     *   <li>数据库：订单置为已取消，`active_flag` 置 NULL（否则无法再次购买）；</li>
+     *   <li>数据库：回补活动/SKU 库存（在 `cancelIfUnpaid` 的事务里完成）；</li>
+     *   <li>Redis：回补秒杀库存 <b>并释放购买资格</b>。</li>
+     * </ol>
+     * 第 3 步过去是缺失的——用户取消后 Redis 侧库存不回补、已购集合也不清理，
+     * 结果是他既买不了第二次，库存也要等对账任务才能修回来。
+     */
     @PostMapping("/{orderNo}/cancel")
     public Result<Boolean> cancel(@PathVariable String orderNo) {
         orderService.queryVO(orderNo, UserContext.requireUserId());
         OrderService.CancelResult result = orderService.cancelIfUnpaid(orderNo, "用户主动取消");
+        if (result.canceled() && result.activityId() != null) {
+            // releaseQualification=true：取消后用户应能重新抢
+            stockService.rollback(result.activityId(), result.userId(),
+                    result.totalStock() == null ? Integer.MAX_VALUE : result.totalStock(),
+                    true, false);
+        }
         return Result.ok(result.canceled());
     }
 

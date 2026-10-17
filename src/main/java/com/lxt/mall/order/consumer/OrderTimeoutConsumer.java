@@ -83,12 +83,13 @@ public class OrderTimeoutConsumer {
                 // 只有秒杀订单才有 Redis 库存；普通订单的库存直接扣在 SKU 表上，
                 // 在上面的 cancelIfUnpaid 事务里已经回补完了。
                 if (result.activityId() != null) {
-                    // releaseQualification=false：一人一单是硬规则，
-                    // 资格不回收，否则用户会在 Redis 通过、在 DB 撞唯一键。
+                    // releaseQualification=true：超时未支付等同"放弃这一单"，
+                    // 应当把购买资格还回去，让用户下次还能抢。
+                    // 这与"已支付的订单不能退资格"不冲突——那一类走的是退款而不是取消。
                     // decInflight=false：订单早已落库，在途计数在下单成功时就归还过了。
                     stockService.rollback(result.activityId(), result.userId(),
                             result.totalStock() == null ? Integer.MAX_VALUE : result.totalStock(),
-                            false, false);
+                            true, false);
                 }
                 metrics.mqEvent("order-timeout", "closed");
                 log.info("订单超时关单完成 orderNo={} 库存已归还", payload.getOrderNo());

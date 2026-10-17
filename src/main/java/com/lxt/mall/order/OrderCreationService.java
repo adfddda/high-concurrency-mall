@@ -170,6 +170,7 @@ public class OrderCreationService {
         order.setPayAmount(price.multiply(BigDecimal.valueOf(quantity)));
         order.setStatus(OrderStatus.CREATED);
         order.setMessageId(msg.getMessageId());
+        order.setActiveFlag(1);
         order.setExpireTime(java.time.LocalDateTime.now(clock).plus(properties.getSeckill().getOrderExpire()));
         return order;
     }
