@@ -5,8 +5,6 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -16,7 +14,6 @@ import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
 
 /**
  * 网关层限流（固定窗口 + Redis 计数）。
@@ -31,45 +28,30 @@ import java.util.List;
  * </ul>
  *
  * <h3>为什么用固定窗口而不是滑动窗口</h3>
- * 固定窗口实现只有一行 Lua（INCR + 首次 PEXPIRE），单次限流判断的成本
- * 是一次 Redis 往返；滑动窗口要用 ZSET 存时间戳，内存和 CPU 都更贵。
- * 代价是<b>边界突刺</b>：窗口切换瞬间可能放过 2 倍流量。
+ * 固定窗口实现只有一行 Lua（INCR + 首次 PEXPIRE），单次判断成本是一次 Redis 往返；
+ * 滑动窗口要用 ZSET 存时间戳，内存和 CPU 都更贵。代价是<b>边界突刺</b>：
+ * 窗口切换瞬间可能放过 2 倍流量。
  *
- * <p>这个代价在网关层是可以接受的：网关的限流是"粗粒度保护"，
+ * <p>这个代价在网关层可以接受：网关的限流是"粗粒度保护"，
  * 精确的业务级限流（用户维度、接口维度）仍然在业务服务里做。
  * <b>不要用同一个精度的方案去解决两个不同层次的问题。</b>
  *
  * <h3>fail-open</h3>
- * Redis 不可用时限流放行。理由与业务侧一致：限流是保护措施，
+ * 计数器不可用时放行。理由与业务侧一致：限流是保护措施，
  * 保护措施自己挂掉时不能把正常业务全拒绝掉。代价是失去保护，
  * 需要通过告警让人知道。
  */
 @Component
 public class RateLimitFilter implements GlobalFilter, Ordered {
 
-    /**
-     * 返回本次窗口内的请求序号（从 1 开始）。
-     *
-     * <p>为什么要用 Lua：INCR 和 PEXPIRE 必须原子。如果分成两条命令，
-     * 在两次命令之间进程崩溃，就会留下一个没有过期时间的计数器——
-     * 那个 IP 会被永久限流。这类"计数器泄漏"故障排查起来极其痛苦。
-     */
-    private static final DefaultRedisScript<Long> COUNTER_SCRIPT = new DefaultRedisScript<>("""
-            local current = redis.call('INCR', KEYS[1])
-            if current == 1 then
-                redis.call('PEXPIRE', KEYS[1], ARGV[1])
-            end
-            return current
-            """, Long.class);
-
-    private final ReactiveStringRedisTemplate redis;
+    private final RateCounter counter;
     private final int limit;
     private final Duration window;
 
-    public RateLimitFilter(ReactiveStringRedisTemplate redis,
+    public RateLimitFilter(RateCounter counter,
                            @Value("${mall.gateway.rate-limit.limit:200}") int limit,
                            @Value("${mall.gateway.rate-limit.window:1s}") Duration window) {
-        this.redis = redis;
+        this.counter = counter;
         this.limit = limit;
         this.window = window;
     }
@@ -86,20 +68,19 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
         long bucket = System.currentTimeMillis() / windowMillis;
         String key = "gw:rate:" + clientIp(exchange) + ":" + bucket;
 
-        return redis.execute(COUNTER_SCRIPT, List.of(key), String.valueOf(windowMillis))
-                .next()
-                // 限流组件故障 → -1 → 放行（fail-open）
+        return counter.increment(key, window)
+                // 计数器故障 → -1 → 放行（fail-open）
                 .onErrorResume(e -> Mono.just(-1L))
                 .defaultIfEmpty(-1L)
                 .flatMap(count -> {
                     ServerHttpResponse response = exchange.getResponse();
                     response.getHeaders().add("X-RateLimit-Limit", String.valueOf(limit));
-                    if (count > 0 && count <= limit) {
-                        response.getHeaders().add("X-RateLimit-Remaining",
-                                String.valueOf(limit - count));
+                    if (count < 0) {
                         return chain.filter(exchange);
                     }
-                    if (count < 0) {
+                    if (count <= limit) {
+                        response.getHeaders().add("X-RateLimit-Remaining",
+                                String.valueOf(limit - count));
                         return chain.filter(exchange);
                     }
                     return tooManyRequests(exchange);
@@ -125,7 +106,7 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
      * 没有则用连接的对端地址。注意这个头<b>可以被客户端伪造</b>，
      * 所以它只能用于"粗粒度保护"，不能用于安全决策（比如白名单）。
      */
-    private String clientIp(ServerWebExchange exchange) {
+    String clientIp(ServerWebExchange exchange) {
         String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
             int comma = forwarded.indexOf(',');
