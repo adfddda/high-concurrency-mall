@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-75%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-81%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **43** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
-| 数据表 | **14** 张，唯一索引 + `CHECK` 约束兜底 |
+| REST 接口 | **44** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| 数据表 | **15** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **75** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **81** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -257,7 +257,7 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 |---|---|---|---|---|
 | GET | `/activities` | ✗ | — | 活动列表 |
 | GET | `/activities/{id}` | ✗ | — | 活动详情（含服务端时间，供前端校准倒计时） |
-| POST | `/activities/{id}/order` | ✓ | **5/s（USER + IP 双维度）** | **抢购主入口**（抽签活动需带 `qualifyCode`） |
+| POST | `/activities/{id}/order` | ✓ | **5/s（USER + IP 双维度）** | **抢购主入口**（抽签带 `qualifyCode`，可带 `X-Device-Id` 头） |
 | POST | `/activities/{id}/reservation` | ✓ | — | 预约（仅抽签活动，幂等） |
 | GET | `/activities/{id}/reservation` | ✓ | — | 我的预约结果（中签时返回资格码） |
 | GET | `/result/{orderNo}` | ✓ | — | 轮询抢购结果 |
@@ -311,6 +311,28 @@ UPDATE t_order SET status = 5, ship_time = ?
 
 这样「用户点确认收货」和「定时任务自动确认」同时发生时，只有一个能改到行。
 不需要分布式锁，也不会出现"完成了两次"导致的重复结算。
+
+### 风控：限流挡"量"，风控挡"人"
+
+限流按 IP/用户限速，能挡住"一个人狂点"和"一个 IP 打爆"。
+但真实黄牛是**一台设备、100 个账号、轮流点**——每个账号都合法、每次请求都在限额内，
+限流完全拦不住，只能靠设备指纹收敛。
+
+```text
+请求 → 活动校验 → 设备风控（只读检查）→ Redis Lua 扣减 → 成功后才占用设备名额
+                        │
+                        └─ 命中 → 记审计 + 直接拒绝（连 Lua 都不用走）
+```
+
+两个关键取舍：
+
+1. **检查与标记分离**：检查是只读的，只有"扣减成功"才占用设备名额。
+   如果检查时就写入，一个"已售罄"的失败请求会把设备烧掉——**没抢到还把你拉黑**。
+2. **设备号是可选参数**：拿不到指纹时放行（靠 IP 限流兜底）。
+   宁可漏防一部分，也不能因为客户端老旧就把正常用户全部拒之门外。
+
+> 拦截记录落在 `t_seckill_risk_hit`，`/api/admin/seckill/{id}/risk-hits` 可按原因统计——
+> 这是风控唯一能自证"到底挡住了多少"的证据。
 
 ### 抽签模式：把 10 万次抢购变成 200 次扣减
 
@@ -367,6 +389,7 @@ end
 | GET | `/seckill/reconcile` | **库存对账：Redis vs DB 是否一致** |
 | GET | `/mq/pending` | 待确认投递数量（>0 说明 broker 或网络有问题） |
 | POST | `/orders/{orderNo}/ship` | **发货**（`PAID → SHIPPED`），管理端专用 |
+| GET | `/seckill/{id}/risk-hits` | 风控拦截统计（按原因分组） |
 
 ---
 
