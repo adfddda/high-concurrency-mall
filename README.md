@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-56%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-62%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **32** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
-| 数据表 | **10** 张，3 组唯一索引 + `CHECK` 约束兜底 |
+| REST 接口 | **35** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| 数据表 | **11** 张，3 组唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **56** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **62** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -256,7 +256,9 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 |---|---|---|---|---|
 | GET | `/activities` | ✗ | — | 活动列表 |
 | GET | `/activities/{id}` | ✗ | — | 活动详情（含服务端时间，供前端校准倒计时） |
-| POST | `/activities/{id}/order` | ✓ | **5/s（USER + IP 双维度）** | **抢购主入口** |
+| POST | `/activities/{id}/order` | ✓ | **5/s（USER + IP 双维度）** | **抢购主入口**（抽签活动需带 `qualifyCode`） |
+| POST | `/activities/{id}/reservation` | ✓ | — | 预约（仅抽签活动，幂等） |
+| GET | `/activities/{id}/reservation` | ✓ | — | 我的预约结果（中签时返回资格码） |
 | GET | `/result/{orderNo}` | ✓ | — | 轮询抢购结果 |
 | POST | `/activities/{id}/preheat` | ✓ | — | 手动预热 |
 
@@ -299,6 +301,39 @@ UPDATE t_order SET status = 5, ship_time = ?
 
 这样「用户点确认收货」和「定时任务自动确认」同时发生时，只有一个能改到行。
 不需要分布式锁，也不会出现"完成了两次"导致的重复结算。
+
+### 抽签模式：把 10 万次抢购变成 200 次扣减
+
+直接抢购有个绕不开的问题：10 万人抢 200 件，**99.8% 的请求注定失败**，
+但它们依然要穿过网关、限流器、Redis Lua，最后拿到一句"已售罄"。
+这些流量消耗的是真金白银，却没有任何业务价值。
+
+抽签把它拆成两段：
+
+```text
+① 预约（活动开始前，可分散到几小时/几天）
+        ↓
+② 开奖（后台批处理，与用户请求完全解耦）
+        ↓
+③ 中签者凭资格码下单 —— 进入扣减链路的请求量 ≈ 库存量级
+```
+
+**资格码为什么放 Redis 而不是只放数据库**：下单是热路径，如果每次都要回查
+`t_seckill_reservation`，等于把数据库又放回了秒杀链路。码同步到 Redis 集合后，
+扣减 Lua 可以用 `SREM` 在**同一个原子操作**里完成"校验 + 消费 + 扣库存"——
+
+```lua
+if mode == '1' then
+    if redis.call('SREM', codesKey, qualifyCode) == 0 then
+        return 4   -- 无资格 / 已被使用
+    end
+end
+```
+
+因此同一个码**不可能**被用两次。另外库存检查放在消费资格码**之前**：
+中签者来晚一步时得到的是"售罄"而不是"无资格"，资格码不会被白白吃掉。
+
+> 数据模型见 `t_seckill_reservation`（`uk_activity_user` 去重 + `uk_qualify_code` 全局唯一）。
 
 ### 订单 `/api/order`
 
