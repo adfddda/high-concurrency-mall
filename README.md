@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-62%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-71%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **35** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
-| 数据表 | **11** 张，3 组唯一索引 + `CHECK` 约束兜底 |
+| REST 接口 | **42** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| 数据表 | **14** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **62** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **71** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -267,7 +267,11 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
 | GET | `/skus` | ✗ | 商品的可售 SKU 列表 |
-| POST | `/orders` | ✓ | **普通下单（同步事务扣 SKU 库存）** |
+| POST | `/orders` | ✓ | **普通下单（同步事务扣 SKU 库存，可叠加优惠券）** |
+| GET/POST | `/cart` | ✓ | 查看 / 加购（幂等累加，单 SKU 封顶 99） |
+| PUT/DELETE | `/cart/{skuId}` | ✓ | 改数量 / 删除 |
+| GET | `/coupons` | ✓ | 我的优惠券（未使用 / 已使用 / 已过期） |
+| POST | `/coupons/{templateId}/claim` | ✓ | 领券（限量，重复领取幂等） |
 | POST | `/orders/{orderNo}/pay` | ✓ | 发起支付，创建支付单（一个订单只允许一笔） |
 | POST | `/payment/callback` | 验签 | 渠道回调：幂等 + 金额校验 |
 | POST | `/orders/{orderNo}/refund` | ✓ | 全额退款，三层幂等 |
@@ -276,6 +280,11 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 > 秒杀要的是吞吐：Redis 预扣 + MQ 削峰，代价是用户要轮询结果。
 > 普通下单要的是确定性：条件 UPDATE 扣库存 + 同步落库，点一下就能看到订单号。
 > **按场景选架构，而不是把高并发方案套到所有写链路上**——这是这两条链路放在一起的意义。
+
+**优惠券与库存是同一类问题**：限量 1000 张券 ≈ 限量 200 件货，都用
+`UPDATE ... WHERE issued_count < total_count` 的条件更新发券；
+核销用 `WHERE status = 0 AND user_id = ?` 保证一张券只能进一笔订单；
+退款/取消用 `order_no` 反查把券还回去。三个动作各一条 SQL，没有分布式锁。
 
 ### 订单状态机
 
