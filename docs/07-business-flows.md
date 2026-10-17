@@ -743,6 +743,198 @@ erDiagram
 10. `SeckillReconcileService`：理解最终一致性。
 11. `ProductCacheService`：理解多级缓存完整链路。
 
+## 16. 普通交易板块（下单 / 支付 / 退款 / 履约）
+
+> 与秒杀的区别一句话：**这条链路是同步的**。用户点一下就要拿到订单号，
+> 而不是"排队中，请轮询"。代价是并发能力不如秒杀链路——但对常规交易来说，
+> 确定性比吞吐重要。
+
+### 16.1 普通下单
+
+```mermaid
+flowchart LR
+    A[提交 skuId + 数量 + 可选券] --> B[SELECT SKU 校验在售]
+    B --> C[UPDATE stock=stock-? WHERE stock>=?]
+    C -->|影响行数 0| X[库存不足，整体回滚]
+    C -->|成功| D{带券?}
+    D -->|是| E[校验门槛 + 券状态 0→1]
+    D -->|否| F[优惠为 0]
+    E --> G[INSERT t_order + t_order_item]
+    F --> G
+    G --> H[提交事务，返回订单号]
+```
+
+要点：
+
+1. **库存判断与扣减压进一条 UPDATE**，没有"查的时候有货、写的时候没了"的窗口；
+2. 库存、券、订单**同一个事务**，任何一步失败整体回滚（测试里专门断言
+   "未达门槛时库存和券都不能被扣"）；
+3. 订单快照（标题、单价）在此时固化——商品后续改价不影响已成交订单。
+
+### 16.2 支付
+
+```text
+POST /orders/{orderNo}/pay        → 创建支付单（uk_order_no 保证一单只有一笔）
+POST /payment/callback            → 渠道回调
+        ├─ 已成功            → 幂等返回成功，不重复记账
+        ├─ 金额不一致        → 拒绝 + 告警
+        ├─ 条件更新 0→1 失败 → 并发回调，读回确认
+        └─ 成功              → OrderService.pay（订单 0→1）
+```
+
+为什么支付单必须独立：一个订单可能多次支付尝试，且**回调幂等需要 paymentNo 粒度**。
+
+### 16.3 退款
+
+```text
+校验归属 → 查退款单（已存在则直接返回，幂等）
+        → UPDATE t_order SET status=4, active_flag=NULL WHERE status=1
+        → 回补库存（秒杀：活动库存 + Redis；普通：SKU 库存）
+        → 支付单置已退款
+        → 退还优惠券
+        → INSERT t_refund（uk_order_no）
+```
+
+三层幂等：状态机 / 退款单唯一键 / 回补挂在状态流转成功分支上。
+**已发货订单不能直接退款**——那要走退货流程，否则钱货两空。
+
+### 16.4 履约
+
+| 动作 | 接口 | 前置状态 | 之后 |
+|---|---|---|---|
+| 发货 | `POST /api/admin/orders/{no}/ship` | `PAID` | `SHIPPED` + `ship_time` |
+| 确认收货 | `POST /api/order/{no}/confirm` | `SHIPPED` | `FINISHED` + `finish_time` |
+| 自动确认 | `OrderAutoConfirmJob`（每小时） | `SHIPPED` 且超 7 天 | 同上 |
+
+自动确认不是可选项：它影响**商家结算**与**售后时效**，只靠用户点击会让大量订单永远停在已发货。
+
+---
+
+## 17. 营销板块（购物车 / 优惠券 / 拼团）
+
+### 17.1 购物车
+
+- 模型：`(user_id, sku_id)` 唯一，一行一条目；加购用
+  `INSERT ... ON DUPLICATE KEY UPDATE quantity = LEAST(quantity + ?, 99)` 幂等累加；
+- **不存价格**：展示时实时读 SKU。存快照会出现"购物车 99、结算 129"；
+- 下架/无货**不删行**，只标记不可结算——用户加购的东西不能凭空消失。
+
+### 17.2 优惠券
+
+```text
+领券：UPDATE t_coupon_template SET issued_count = issued_count + 1
+       WHERE id = ? AND issued_count < total_count AND #{now} BETWEEN start_time AND end_time
+核销：UPDATE t_coupon SET status = 1, order_no = ?
+       WHERE id = ? AND user_id = ? AND status = 0 AND expire_time > #{now}
+还券：UPDATE t_coupon SET status = 0, order_no = NULL WHERE order_no = ? AND status = 1
+```
+
+三条语句分别防：超发、一券多单/盗用、退款吞券。
+
+### 17.3 拼团
+
+```text
+开团/参团 → 各自生成待支付订单（库存已扣），成员表 uk_group_user 防重复
+        ↓ 每笔支付成功
+   UPDATE 成员 status 0→1（只有改到行的那一次才继续）
+        ↓
+   UPDATE 团：先判成团、再自增 paid_count
+        ↓ 到期未成团
+   团置失败 → 未付关单 / 已付退款 / 库存回补
+```
+
+两个坑：
+
+1. **`SET` 顺序**：MySQL 会用已赋值的新值参与后续表达式，必须先判后增；
+2. **失败处理不能吞异常**：否则团被置为"已失败"但有人没退到款，而"已失败"的团
+   不会被再次扫描——这笔钱就永远挂在平台上。宁可整批回滚重试。
+
+---
+
+## 18. 秒杀抽签与风控
+
+### 18.1 预约抽签
+
+```text
+预约（活动开始前，uk_activity_user 去重）
+   → 开奖（<活动开始前 1 分钟> 或管理员手动）
+        洗牌 → 前 N 名中签并生成资格码 → 写 Redis 集合
+   → 下单：必须带 qualifyCode，Lua 内 SREM 原子消费
+```
+
+削峰效果：进入扣减链路的请求量从"人群量级"降到"库存量级"。
+
+### 18.2 设备风控
+
+```text
+下单前：SISMEMBER seckill:risk:dev:{act:N} deviceId   （只读）
+  命中 → 写 t_seckill_risk_hit + 返回 20012
+扣减成功后：SADD 同一集合（TTL 24h）
+```
+
+- 检查只读、标记在成功后：否则"没抢到还把你拉黑"；
+- 按活动维度隔离：A 活动用过不影响 B 活动；
+- 设备号可选：拿不到就放行，由 IP 限流兜底。
+
+### 18.3 取消后为什么能重新买
+
+订单表用 `active_flag`（1 有效 / NULL 失效）参与唯一索引：
+取消或退款时置 NULL，于是"同一活动同时只能有一笔有效订单"成立，而用户可以再次购买，
+历史订单仍然保留可查。同时 Redis 侧必须回补库存并**释放购买资格**（`releaseQualification=true`），
+否则会出现"数据库允许、Redis 拒绝"的分裂。
+
+---
+
+## 19. 搜索与网关
+
+### 19.1 商品搜索
+
+```text
+GET /api/product/search?keyword=
+  → ES 可用：multi_match(title^2, subTitle) + operator=and + filter(status=1)
+  → ES 异常：LIKE 查询（记 WARN，接口语义不变）
+```
+
+`operator=and` 是踩过坑的：默认 OR + 中文按字分词会让"不存在的商品"命中一堆结果。
+
+索引维护：
+
+- 启动时全量重建（`ApplicationReadyEvent`，避免 `@PostConstruct` 时表还没初始化）；
+- 变更后增量同步（`AFTER_COMMIT`，先库后索引，避免搜到不存在的商品）。
+
+### 19.2 网关
+
+```text
+客户端 → 网关(:8081) → 业务服务(:8080)
+            ├─ 固定窗口限流（每 IP，Redis INCR+PEXPIRE，fail-open）
+            ├─ X-Request-Id 注入（与 traceId 互补：一个全量、一个采样）
+            └─ 路由在 Java 中声明（4.2 起配置前缀变过，YAML 写错是静默 404）
+```
+
+网关**不做 JWT 验签**：令牌签发、黑名单、权限都在业务侧，重复实现只会产生两套鉴权规则。
+
+---
+
+## 20. 定时任务汇总（V2）
+
+| 任务 | 频率 | 兜底对象 |
+|---|---|---|
+| `SeckillPreheatJob` | 每分钟 | 活动开始瞬间的集中回源 |
+| `PendingMessageRetryJob` | 每 2 秒 | Confirm 丢失 / broker 静默失联 |
+| `OrderTimeoutFallbackJob` | 每分钟 | 延迟关单消息丢失 |
+| `SeckillReconcileJob` | 每分钟（默认） | 库存漂移、在途泄漏 |
+| `ActivityStatusSyncJob` | 30 秒 | 活动状态与时间不一致 |
+| `SeckillDrawJob` | 30 秒 | 抽签活动到点未开奖 |
+| `OrderAutoConfirmJob` | 1 小时 | 发货后长期未确认收货 |
+| `GroupBuyExpireJob` | 1 分钟 | 拼团到期未成团（退款/关单/回补） |
+
+> 共同原则：**实时链路负责快，定时任务负责不漏**。
+> 任何"靠消息触发的关键动作"都必须有一个按状态扫描的兜底任务。
+
+---
+
 一句话总结整个项目：
 
-> 通过本地缓存和 Redis 把高并发请求挡在数据库之外，通过 RabbitMQ 削平真正需要落库的流量，再用数据库约束、幂等、补偿、死信和对账保证数据最终正确。
+> 秒杀链路用**本地缓存 + Redis Lua + MQ** 把高并发挡在数据库之外，用**唯一索引、幂等、补偿、死信与对账**保证最终正确；
+> 交易链路用**同步事务 + 状态机**保证确定性；营销、抽签、风控、搜索、网关各自解决一类具体问题——
+> 而每一条结论都对应一个可观测信号或一条可复现的测试。
