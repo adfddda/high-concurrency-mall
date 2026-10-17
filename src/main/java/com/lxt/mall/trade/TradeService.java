@@ -54,6 +54,7 @@ public class TradeService {
     private final ProductMapper productMapper;
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
+    private final CouponService couponService;
     private final MallProperties properties;
     private final Clock clock;
 
@@ -72,8 +73,18 @@ public class TradeService {
      * <p>库存扣减用条件更新，影响行数为 0 就是"卖完了"：
      * 不需要先查再判断，也就没有"查的时候有货、写的时候没了"的窗口。
      */
-    @Transactional(rollbackFor = Exception.class)
     public OrderVO createOrder(Long userId, Long skuId, int quantity) {
+        return createOrder(userId, skuId, quantity, null);
+    }
+
+    /**
+     * 普通下单（可叠加优惠券）。
+     *
+     * <p>库存扣减、券核销、订单落库在<b>同一个事务</b>里：
+     * 任何一步失败都整体回滚，不会出现"券扣了但订单没建"这种资损形态。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public OrderVO createOrder(Long userId, Long skuId, int quantity, Long couponId) {
         Sku sku = skuMapper.selectById(skuId);
         if (sku == null || !Integer.valueOf(1).equals(sku.getStatus())) {
             throw new BusinessException(ResultCode.SKU_NOT_FOUND);
@@ -86,9 +97,15 @@ public class TradeService {
 
         Product product = productMapper.selectById(sku.getProductId());
         BigDecimal amount = sku.getPrice().multiply(BigDecimal.valueOf(quantity));
+        String orderNo = "NO" + IdWorker.getIdStr();
+
+        BigDecimal discount = BigDecimal.ZERO;
+        if (couponId != null) {
+            discount = couponService.useForOrder(userId, couponId, amount, orderNo);
+        }
 
         Order order = new Order();
-        order.setOrderNo("NO" + IdWorker.getIdStr());
+        order.setOrderNo(orderNo);
         order.setUserId(userId);
         order.setBizType(OrderBizType.NORMAL.getCode());
         order.setSkuId(skuId);
@@ -98,7 +115,9 @@ public class TradeService {
         // 改名需要改表 + 改所有引用，收益只有可读性，留到订单模型重构时一起做。
         order.setSeckillPrice(sku.getPrice());
         order.setQuantity(quantity);
-        order.setPayAmount(amount);
+        order.setCouponId(couponId);
+        order.setDiscountAmount(discount);
+        order.setPayAmount(amount.subtract(discount));
         order.setStatus(OrderStatus.CREATED);
         order.setExpireTime(LocalDateTime.now(clock).plus(properties.getTrade().getOrderExpire()));
         orderMapper.insert(order);
@@ -113,8 +132,8 @@ public class TradeService {
         item.setQuantity(quantity);
         orderItemMapper.insert(item);
 
-        log.info("普通订单创建成功 orderNo={} skuId={} quantity={} amount={}",
-                order.getOrderNo(), skuId, quantity, amount);
+        log.info("普通订单创建成功 orderNo={} skuId={} quantity={} amount={} discount={} payable={}",
+                order.getOrderNo(), skuId, quantity, amount, discount, order.getPayAmount());
         return OrderVO.from(order);
     }
 }

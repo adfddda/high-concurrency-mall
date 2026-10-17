@@ -53,6 +53,7 @@ public class RefundService {
     private final SkuMapper skuMapper;
     private final SeckillActivityMapper activityMapper;
     private final SeckillStockService stockService;
+    private final CouponService couponService;
     private final Clock clock;
 
     @Transactional(rollbackFor = Exception.class)
@@ -94,6 +95,9 @@ public class RefundService {
         }
 
         paymentMapper.markRefunded(orderNo);
+
+        // 退还优惠券：券是用户资产，订单退款后必须回到用户手里
+        couponService.restoreByOrder(orderNo);
 
         Refund refund = new Refund();
         refund.setRefundNo("RF" + IdWorker.getIdStr());

@@ -113,6 +113,93 @@ CREATE TABLE IF NOT EXISTS t_seckill_reservation
   COLLATE = utf8mb4_general_ci COMMENT ='秒杀预约与抽签记录';
 
 
+-- ============================================================================
+--  购物车
+--
+--  为什么购物车不做成"一个用户一行 JSON"：
+--   1. 加购/改数量需要并发安全，JSON 得整行读改写，两个人同时改会互相覆盖；
+--   2. 下单时要按 sku_id 定位某几行，JSON 里做不到行级操作；
+--   3. 购物车条目会单独维护"是否勾选"，这是行级状态。
+--  所以用 (user_id, sku_id) 唯一的一行一条目模型。
+--  另外这里刻意【不缓存价格】：价格是 SKU 的属性，购物车只存"买什么、买几件"，
+--  展示时实时读 SKU——否则商品调价后购物车会一直显示旧价，下单又按新价算，
+--  用户会觉得"被偷改价格"。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_cart_item
+(
+    id          BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    user_id     BIGINT UNSIGNED NOT NULL,
+    sku_id      BIGINT UNSIGNED NOT NULL,
+    quantity    INT             NOT NULL DEFAULT 1 COMMENT '数量',
+    checked     TINYINT         NOT NULL DEFAULT 1 COMMENT '1 勾选 0 未勾选',
+    create_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    -- 同一用户同一 SKU 只有一行：重复加购是"数量 +1"而不是"多一行"
+    UNIQUE KEY uk_user_sku (user_id, sku_id),
+    KEY idx_user (user_id, update_time)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='购物车条目';
+
+
+-- ============================================================================
+--  优惠券模板
+--
+--  issued_count 是"已发放数量"，领取时用条件更新原子自增：
+--      UPDATE ... SET issued_count = issued_count + 1
+--       WHERE id = ? AND issued_count < total_count
+--  影响行数为 0 就是"领完了"。这与库存扣减是同一套思路：
+--  把"判断"和"变更"压进一条语句，避免"查的时候还有、发的时候没了"的超发。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_coupon_template
+(
+    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name             VARCHAR(64)     NOT NULL COMMENT '券名',
+    threshold_amount DECIMAL(10, 2)  NOT NULL COMMENT '满多少可用',
+    discount_amount  DECIMAL(10, 2)  NOT NULL COMMENT '减多少',
+    total_count      INT             NOT NULL COMMENT '发行总量',
+    issued_count     INT             NOT NULL DEFAULT 0 COMMENT '已发放',
+    per_user_limit   INT             NOT NULL DEFAULT 1 COMMENT '每人限领',
+    start_time       DATETIME(3)     NOT NULL,
+    end_time         DATETIME(3)     NOT NULL,
+    status           TINYINT         NOT NULL DEFAULT 1 COMMENT '1 生效 0 停用',
+    create_time      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    CONSTRAINT ck_coupon_issued CHECK (issued_count <= total_count)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='优惠券模板';
+
+
+-- ============================================================================
+--  用户优惠券
+--  uk_template_user 在 per_user_limit = 1 时直接等价于"每人限领一张"，
+--  不需要在应用层再查一次"领过没有"。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_coupon
+(
+    id          BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    coupon_no   VARCHAR(32)     NOT NULL COMMENT '券码（对外）',
+    template_id BIGINT UNSIGNED NOT NULL,
+    user_id     BIGINT UNSIGNED NOT NULL,
+    status      TINYINT         NOT NULL DEFAULT 0 COMMENT '0未使用 1已使用 2已过期',
+    order_no    VARCHAR(32)              DEFAULT NULL COMMENT '核销订单号',
+    use_time    DATETIME(3)              DEFAULT NULL,
+    expire_time DATETIME(3)     NOT NULL,
+    create_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_coupon_no (coupon_no),
+    UNIQUE KEY uk_template_user (template_id, user_id),
+    KEY idx_user_status (user_id, status),
+    KEY idx_order (order_no)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='用户优惠券';
+
+
 CREATE TABLE IF NOT EXISTS t_order
 (
     id            BIGINT UNSIGNED NOT NULL COMMENT '订单ID（雪花）',
@@ -130,6 +217,8 @@ CREATE TABLE IF NOT EXISTS t_order
     seckill_price DECIMAL(10, 2)  NOT NULL COMMENT '成交单价快照',
     quantity      INT             NOT NULL DEFAULT 1 COMMENT '数量',
     pay_amount    DECIMAL(10, 2)  NOT NULL COMMENT '应付金额',
+    coupon_id     BIGINT UNSIGNED          DEFAULT NULL COMMENT '使用的优惠券',
+    discount_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00 COMMENT '优惠金额',
     status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已取消 3已完成 4已退款 5已发货',
     message_id    VARCHAR(64)              DEFAULT NULL COMMENT '创建该订单的 MQ 消息ID（普通订单为 NULL）',
     pay_time      DATETIME(3)              DEFAULT NULL,

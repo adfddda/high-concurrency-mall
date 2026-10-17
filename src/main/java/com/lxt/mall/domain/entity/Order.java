@@ -63,6 +63,12 @@ public class Order implements Serializable {
 
     private BigDecimal payAmount;
 
+    /** 使用的优惠券 ID（未使用为 null）。 */
+    private Long couponId;
+
+    /** 优惠金额。pay_amount = 单价 × 数量 − discount_amount。 */
+    private BigDecimal discountAmount;
+
     private OrderStatus status;
 
     private String messageId;

@@ -51,6 +51,7 @@ public class OrderService {
     private final SeckillActivityMapper activityMapper;
     private final StockFlowMapper stockFlowMapper;
     private final SkuMapper skuMapper;
+    private final com.lxt.mall.trade.CouponService couponService;
     private final Clock clock;
 
     /**
@@ -140,6 +141,10 @@ public class OrderService {
 
         log.info("订单已取消并归还库存 orderNo={} bizType={} activityId={} skuId={} quantity={}",
                 orderNo, order.getBizType(), order.getActivityId(), order.getSkuId(), quantity);
+
+        // 取消也还券：订单没成立，券不该被吞掉
+        couponService.restoreByOrder(orderNo);
+
         return new CancelResult(true, orderNo, order.getActivityId(), order.getUserId(), quantity, totalStock);
     }
 

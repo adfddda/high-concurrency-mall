@@ -59,7 +59,12 @@ public enum ResultCode {
     PAYMENT_AMOUNT_MISMATCH(30021, "支付金额与订单金额不一致"),
     PAYMENT_STATUS_CONFLICT(30022, "支付单状态已变更，操作失败"),
     REFUND_NOT_ALLOWED(30030, "当前订单状态不支持退款"),
-    REFUND_AMOUNT_MISMATCH(30031, "退款金额与支付金额不一致");
+    REFUND_AMOUNT_MISMATCH(30031, "退款金额与支付金额不一致"),
+    COUPON_NOT_FOUND(30040, "优惠券不存在"),
+    COUPON_SOLD_OUT(30041, "优惠券已领完"),
+    COUPON_ALREADY_CLAIMED(30042, "您已领取过该优惠券"),
+    COUPON_THRESHOLD_NOT_MET(30043, "订单金额未达到优惠券使用门槛"),
+    COUPON_UNAVAILABLE(30044, "优惠券不可用或已被使用");
 
     private final int code;
     private final String message;

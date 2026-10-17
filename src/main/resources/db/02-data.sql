@@ -32,6 +32,16 @@ VALUES (3001, 1001, 'MI15U-16-512-BK', '{"color":"黑","storage":"512G"}', 6499.
        (3006, 1005, 'NSW2-256', '{"storage":"256G"}', 2599.00, 500, 1)
 ON DUPLICATE KEY UPDATE sku_code = VALUES(sku_code);
 
+-- 一张演示优惠券：满 100 减 20，有效期 30 天。
+-- issued_count 不重置，避免每次启动都把已领数量"复活"。
+INSERT INTO t_coupon_template (id, name, threshold_amount, discount_amount, total_count, issued_count,
+                               per_user_limit, start_time, end_time, status)
+VALUES (4001, '满 100 减 20', 100.00, 20.00, 1000, 0, 1,
+        DATE_SUB(NOW(3), INTERVAL 1 DAY), DATE_ADD(NOW(3), INTERVAL 30 DAY), 1)
+ON DUPLICATE KEY UPDATE name = VALUES(name),
+                        threshold_amount = VALUES(threshold_amount),
+                        discount_amount = VALUES(discount_amount);
+
 -- 秒杀活动：时间窗口做成「长期有效」，方便随时压测；
 -- 生产环境应按运营配置写入具体时段。
 INSERT INTO t_seckill_activity (id, activity_name, product_id, seckill_price, total_stock, available_stock,

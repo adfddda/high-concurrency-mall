@@ -15,4 +15,7 @@ public class CreateOrderRequest {
     @Min(value = 1, message = "购买数量至少为 1")
     @Max(value = 99, message = "单次最多购买 99 件")
     private Integer quantity = 1;
+
+    /** 可选：使用的优惠券 ID。 */
+    private Long couponId;
 }

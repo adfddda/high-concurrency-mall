@@ -72,6 +72,8 @@ public abstract class BaseIntegrationTest {
         // "首次支付"被误判为"重复支付"。
         jdbcTemplate.execute("DELETE FROM t_refund");
         jdbcTemplate.execute("DELETE FROM t_payment");
+        jdbcTemplate.execute("DELETE FROM t_coupon");
+        jdbcTemplate.execute("DELETE FROM t_cart_item");
         // 预约记录按 (activity_id, user_id) 唯一，不清会让下一个用例
         // 直接复用上一个用例的预约，抽签结果天然不对
         jdbcTemplate.execute("DELETE FROM t_seckill_reservation");

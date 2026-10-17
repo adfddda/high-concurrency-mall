@@ -4,14 +4,18 @@ import com.lxt.mall.common.api.Result;
 import com.lxt.mall.common.context.UserContext;
 import com.lxt.mall.order.dto.OrderVO;
 import com.lxt.mall.trade.dto.CreateOrderRequest;
+import com.lxt.mall.trade.dto.CartItemVO;
+import com.lxt.mall.trade.dto.CouponVO;
 import com.lxt.mall.trade.dto.PaymentVO;
 import com.lxt.mall.trade.dto.RefundVO;
 import com.lxt.mall.trade.dto.SkuVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -35,6 +39,8 @@ public class TradeController {
     private final TradeService tradeService;
     private final PaymentService paymentService;
     private final RefundService refundService;
+    private final CartService cartService;
+    private final CouponService couponService;
 
     /** 商品的可售 SKU 列表（公开接口）。 */
     @GetMapping("/skus")
@@ -42,11 +48,59 @@ public class TradeController {
         return Result.ok(tradeService.listSkus(productId));
     }
 
-    /** 普通下单：同步扣库存、同步落库，立即返回订单。 */
+    /** 普通下单：同步扣库存、同步落库，立即返回订单（可带优惠券）。 */
     @PostMapping("/orders")
     public Result<OrderVO> createOrder(@RequestBody @Valid CreateOrderRequest request) {
         return Result.ok(tradeService.createOrder(
-                UserContext.requireUserId(), request.getSkuId(), request.getQuantity()));
+                UserContext.requireUserId(), request.getSkuId(), request.getQuantity(),
+                request.getCouponId()));
+    }
+
+    // ========================================================================
+    // 购物车
+    // ========================================================================
+
+    @GetMapping("/cart")
+    public Result<List<CartItemVO>> cart() {
+        return Result.ok(cartService.list(UserContext.requireUserId()));
+    }
+
+    @PostMapping("/cart")
+    public Result<CartItemVO> addToCart(@RequestParam Long skuId,
+                                        @RequestParam(defaultValue = "1") int quantity) {
+        return Result.ok(cartService.add(UserContext.requireUserId(), skuId, quantity));
+    }
+
+    @PutMapping("/cart/{skuId}")
+    public Result<CartItemVO> updateCart(@PathVariable Long skuId, @RequestParam int quantity) {
+        return Result.ok(cartService.updateQuantity(UserContext.requireUserId(), skuId, quantity));
+    }
+
+    @DeleteMapping("/cart/{skuId}")
+    public Result<Void> removeFromCart(@PathVariable Long skuId) {
+        cartService.remove(UserContext.requireUserId(), skuId);
+        return Result.ok();
+    }
+
+    @DeleteMapping("/cart")
+    public Result<Void> clearCart() {
+        cartService.clear(UserContext.requireUserId());
+        return Result.ok();
+    }
+
+    // ========================================================================
+    // 优惠券
+    // ========================================================================
+
+    @GetMapping("/coupons")
+    public Result<List<CouponVO>> myCoupons(@RequestParam(required = false) Integer status) {
+        return Result.ok(couponService.listMine(UserContext.requireUserId(), status));
+    }
+
+    /** 领券。幂等：重复领取返回已有券而不是报错。 */
+    @PostMapping("/coupons/{templateId}/claim")
+    public Result<CouponVO> claimCoupon(@PathVariable Long templateId) {
+        return Result.ok(couponService.claim(templateId, UserContext.requireUserId()));
     }
 
     /**
