@@ -48,9 +48,9 @@ public class OrderCreatedListener {
         Order order = event.getOrder();
         SeckillOrderMessage msg = event.getSourceMessage();
 
-        // 1. 归还在途计数
+        // 1. 归还在途计数（回补到该用户所属的库存桶）
         try {
-            stockService.inflightDec(order.getActivityId());
+            stockService.inflightDec(order.getActivityId(), order.getUserId());
         } catch (Exception e) {
             log.warn("归还在途计数失败 activityId={}（不影响订单）", order.getActivityId(), e);
         }

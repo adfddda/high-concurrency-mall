@@ -20,9 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
@@ -56,6 +57,7 @@ public class ReservationService {
 
     private final SeckillReservationMapper reservationMapper;
     private final SeckillActivityMapper activityMapper;
+    private final SeckillStockService stockService;
     private final StringRedisTemplate redis;
     private final Clock clock;
 
@@ -135,24 +137,24 @@ public class ReservationService {
         Collections.shuffle(all, new Random());
 
         int batch = (int) (System.currentTimeMillis() / 1000);
-        List<String> codes = new ArrayList<>(winners);
+        Map<Long, String> codeByUser = new LinkedHashMap<>(Math.max(16, winners));
 
         for (int i = 0; i < all.size(); i++) {
             SeckillReservation r = all.get(i);
             if (i < winners) {
                 String code = newCode();
                 if (reservationMapper.markWon(activityId, r.getUserId(), code, batch) == 1) {
-                    codes.add(code);
+                    codeByUser.put(r.getUserId(), code);
                 }
             } else {
                 reservationMapper.markLost(activityId, r.getUserId(), batch);
             }
         }
 
-        cacheCodes(activity, codes);
+        codeByUser.forEach((userId, code) -> cacheCode(activity, userId, code));
         log.info("抽签完成 activityId={} 参与={} 中签={} 库存={} 批次={}",
-                activityId, all.size(), codes.size(), activity.getAvailableStock(), batch);
-        return codes.size();
+                activityId, all.size(), codeByUser.size(), activity.getAvailableStock(), batch);
+        return codeByUser.size();
     }
 
     /** 供定时任务使用：找出即将开始、且尚未抽签的抽签类活动。 */
@@ -164,12 +166,16 @@ public class ReservationService {
                 .le(SeckillActivity::getStartTime, now.plus(ahead)));
     }
 
-    private void cacheCodes(SeckillActivity activity, List<String> codes) {
-        if (codes.isEmpty()) {
-            return;
-        }
-        String key = RedisKeys.seckillQualifyCodes(activity.getId());
-        redis.opsForSet().add(key, codes.toArray(String[]::new));
+    /**
+     * 把资格码写进<b>中签者自己所属的那个桶</b>。
+     *
+     * <p>为什么按用户分桶而不是全放一个集合：分桶后扣减 Lua 只能操作同槽的 key，
+     * 把所有人的码放一个全局集合会导致 CROSSSLOT。放各自桶里还有个额外好处——
+     * 每个码只存在一份，不可能出现"两个桶各有一份、被消费两次"。
+     */
+    private void cacheCode(SeckillActivity activity, Long userId, String code) {
+        String key = RedisKeys.seckillQualifyCodes(activity.getId(), stockService.bucketOf(userId));
+        redis.opsForSet().add(key, code);
         // 与库存 key 同生命周期：活动结束后再留 1 小时，允许边界上的在途请求
         Duration ttl = Duration.between(LocalDateTime.now(clock), activity.getEndTime()).plusHours(1);
         if (ttl.isNegative() || ttl.toMinutes() < 10) {

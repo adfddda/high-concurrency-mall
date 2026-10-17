@@ -38,23 +38,54 @@ public final class RedisKeys {
         return "{act:" + activityId + "}";
     }
 
+    /**
+     * 分桶维度的 Hash Tag。
+     *
+     * <p><b>为什么分桶要换 tag</b>：Hash Tag 的作用是"把 key 放到同一个槽"。
+     * 想让不同桶分散到不同分片，就必须让它们的 tag 不同——
+     * 否则 {act:N} 不变，所有桶仍然落在同一个槽上，"分桶"就只是改了个名字，
+     * 一点吞吐都提升不了。
+     *
+     * <p>代价是：同一个 Lua 脚本只能操作<b>一个桶内</b>的 key。所以按用户
+     * 哈希路由到固定桶（见 {@code SeckillStockService#bucketOf}），
+     * 一人一单的判定、资格码的消费都限制在该用户自己的桶里——既不跨槽，也不会重复。
+     *
+     * @param bucket -1 表示未启用分桶，沿用旧的 {@code {act:N}} 格式
+     */
+    public static String bucketTag(Long activityId, int bucket) {
+        return bucket < 0 ? activityTag(activityId) : "{act:" + activityId + ":b" + bucket + "}";
+    }
+
     // ========================================================================
     // 秒杀
     // ========================================================================
 
-    /** 剩余可抢库存，String。 */
+    /** 剩余可抢库存，String。未分桶版本（bucket = -1）。 */
     public static String seckillStock(Long activityId) {
-        return "seckill:stock:" + activityTag(activityId);
+        return seckillStock(activityId, -1);
+    }
+
+    /** 剩余可抢库存（按桶）。 */
+    public static String seckillStock(Long activityId, int bucket) {
+        return "seckill:stock:" + bucketTag(activityId, bucket);
     }
 
     /** 已抢购用户集合，Set。一人一单的准入判定。 */
     public static String seckillBought(Long activityId) {
-        return "seckill:bought:" + activityTag(activityId);
+        return seckillBought(activityId, -1);
+    }
+
+    public static String seckillBought(Long activityId, int bucket) {
+        return "seckill:bought:" + bucketTag(activityId, bucket);
     }
 
     /** 在途计数，String。Redis 已扣减但订单尚未落库的请求数。 */
     public static String seckillInflight(Long activityId) {
-        return "seckill:inflight:" + activityTag(activityId);
+        return seckillInflight(activityId, -1);
+    }
+
+    public static String seckillInflight(Long activityId, int bucket) {
+        return "seckill:inflight:" + bucketTag(activityId, bucket);
     }
 
     /**
@@ -69,7 +100,17 @@ public final class RedisKeys {
      * Redis 只是它的可重建投影——丢了可以重新灌。
      */
     public static String seckillQualifyCodes(Long activityId) {
-        return "seckill:codes:" + activityTag(activityId);
+        return seckillQualifyCodes(activityId, -1);
+    }
+
+    /**
+     * 资格码集合（按桶）。
+     *
+     * <p>每个中签者的码只写进<b>他自己那个桶</b>的集合——因此码只可能存在一份，
+     * 不存在"多个桶各有一份、被用两次"的风险。
+     */
+    public static String seckillQualifyCodes(Long activityId, int bucket) {
+        return "seckill:codes:" + bucketTag(activityId, bucket);
     }
 
     /** 活动元信息快照，String(JSON)。 */

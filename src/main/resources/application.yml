@@ -223,6 +223,8 @@ mall:
     local-soldout-ttl: 10s
     # 在途计数：Redis 已扣减但订单尚未落库的请求数，对账时的关键修正项
     inflight-tracking: true
+    # 库存分桶数：1 = 不分桶。>1 只在 Redis Cluster 下有意义（见 MallProperties.Seckill 注释）
+    bucket-count: ${SECKILL_BUCKETS:1}
 
   cache:
     product:

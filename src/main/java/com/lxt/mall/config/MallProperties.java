@@ -98,6 +98,26 @@ public class MallProperties {
         private Duration localSoldoutTtl = Duration.ofSeconds(10);
         /** 是否维护在途计数（对账时需要）。 */
         private boolean inflightTracking = true;
+
+        /**
+         * 库存分桶数。1 = 不分桶（默认，行为与早期版本完全一致）。
+         *
+         * <p><b>什么时候需要它</b>：单个秒杀活动的库存是一个热点 key。
+         * Redis Cluster 下这个 key 只落在一个分片上，该分片的单线程能力
+         * 就是整个活动的吞吐上限——加机器、加分片都救不了它。
+         * 把库存拆成 N 个桶、按 userId 哈希路由，桶就能分散到不同分片。
+         *
+         * <p><b>代价（必须说清楚）</b>：
+         * <ol>
+         *   <li>同一个用户永远路由到同一个桶——这是"一人一单"和"资格码"
+         *       能在桶内原子判定的前提，但也意味着<b>桶间负载由哈希决定，不可控</b>；</li>
+         *   <li>不做跨桶回退：用户所在桶卖完就直接返回售罄，即使别的桶还有货。
+         *       这会<b>少卖</b>，但绝不会超卖，对账任务可以兜底；</li>
+         *   <li>单机 Redis 上分桶<b>没有吞吐收益</b>（仍然是一个线程），
+         *       收益只在 Cluster 下出现。</li>
+         * </ol>
+         */
+        private int bucketCount = 1;
     }
 
     @Data
