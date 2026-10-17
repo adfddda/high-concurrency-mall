@@ -230,6 +230,9 @@ java -jar target/high-concurrency-mall.jar
 
 ## 5 分钟跑通全链路
 
+> 想一次看完整条链路（登录 → 浏览 → 搜索 → 加购 → 领券 → 下单 → 支付 → 发货 → 收货 → 退款 → 抽签 → 对账），
+> 直接跑 **`python scripts/demo.py`**（只用标准库，无需安装依赖）。下面是可以逐条复制的原始命令。
+
 ```bash
 BASE=http://127.0.0.1:8080
 

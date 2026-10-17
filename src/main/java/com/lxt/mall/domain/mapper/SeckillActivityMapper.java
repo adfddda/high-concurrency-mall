@@ -82,4 +82,20 @@ public interface SeckillActivityMapper extends BaseMapper<SeckillActivity> {
                             END
             """)
     int syncStatus(@Param("now") LocalDateTime now);
+
+    /**
+     * 立即开抢（运营工具）。
+     *
+     * <p>把开始时间提前到"现在"，常用于补开活动或演示。
+     * 带 {@code start_time > now} 条件：只允许"提前"，不能把已经开始的活动推后——
+     * 否则一次误操作就能让正在进行的秒杀提前结束。
+     */
+    @Update("""
+            UPDATE t_seckill_activity
+               SET start_time = #{now}, status = 1
+             WHERE id = #{id}
+               AND start_time > #{now}
+               AND end_time > #{now}
+            """)
+    int openNow(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

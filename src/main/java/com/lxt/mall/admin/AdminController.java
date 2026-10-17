@@ -42,6 +42,9 @@ public class AdminController {
     private final com.lxt.mall.order.FulfillmentService fulfillmentService;
     private final com.lxt.mall.seckill.ReservationService reservationService;
     private final com.lxt.mall.domain.mapper.SeckillRiskHitMapper riskHitMapper;
+    private final com.lxt.mall.domain.mapper.SeckillActivityMapper activityMapper;
+    private final com.lxt.mall.seckill.SeckillActivityService activityService;
+    private final java.time.Clock clock;
 
     /** 商品缓存的 L1 命中统计。 */
     @GetMapping("/cache/product/stats")
@@ -153,5 +156,21 @@ public class AdminController {
     @GetMapping("/seckill/{activityId}/risk-hits")
     public Result<List<Map<String, Object>>> riskHits(@PathVariable Long activityId) {
         return Result.ok(riskHitMapper.countByReason(activityId));
+    }
+
+    /**
+     * 立即开抢（运营工具 / 演示用）。
+     *
+     * <p>把开始时间提前到"现在"。抽签活动必须先开奖、再开抢，
+     * 一条命令就能把整条演示链路跑通，不用真的等十分钟。
+     */
+    @PostMapping("/seckill/{activityId}/open")
+    public Result<Boolean> openNow(@PathVariable Long activityId) {
+        int rows = activityMapper.openNow(activityId, java.time.LocalDateTime.now(clock));
+        if (rows > 0) {
+            // 本地快照缓存里还是旧的开始时间，必须失效
+            activityService.evictLocal(activityId);
+        }
+        return Result.ok(rows > 0);
     }
 }
