@@ -89,6 +89,21 @@ services:
       - "16686:16686"   # Jaeger UI
       - "4318:4318"     # OTLP over HTTP（应用通过它上报 span）
 
+  # 商品搜索。单节点、关闭安全插件，只为本地演示。
+  elasticsearch:
+    profiles: ["full"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: mall-es
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
   app:
     profiles: ["full"]
     build:
@@ -104,6 +119,8 @@ services:
       rabbitmq:
         condition: service_healthy
       jaeger:
+        condition: service_started
+      elasticsearch:
         condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: docker
@@ -123,6 +140,9 @@ services:
       OTEL_ENABLED: "true"
       OTEL_ENDPOINT: http://jaeger:4318/v1/traces
       TRACING_SAMPLE_RATE: "1.0"
+      # 搜索走容器内的 elasticsearch；连不上会自动降级到数据库
+      SEARCH_ENABLED: "true"
+      SEARCH_ENDPOINT: http://elasticsearch:9200
       JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseZGC"
     ports:
       - "8080:8080"
@@ -156,3 +176,4 @@ volumes:
   mysql-data:
   redis-data:
   rabbitmq-data:
+  es-data:

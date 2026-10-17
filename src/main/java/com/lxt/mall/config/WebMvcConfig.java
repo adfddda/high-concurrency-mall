@@ -35,6 +35,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         // 商品浏览：读接口，允许游客访问（也方便压测时不带 token 打缓存）
                         "/api/product/list",
                         "/api/product/detail/**",
+                        "/api/product/search",
                         // 秒杀活动浏览：活动列表与详情是公开的
                         "/api/seckill/activities",
                         "/api/seckill/activities/running",

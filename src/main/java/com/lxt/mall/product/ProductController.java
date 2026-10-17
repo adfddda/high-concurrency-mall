@@ -26,11 +26,28 @@ public class ProductController {
 
     private final ProductService productService;
     private final ProductCacheService cacheService;
+    private final com.lxt.mall.search.ProductSearchService searchService;
 
     @GetMapping("/list")
     public Result<PageResult<ProductVO>> list(@RequestParam(defaultValue = "1") long pageNum,
                                               @RequestParam(defaultValue = "10") long pageSize) {
         return Result.ok(productService.list(pageNum, pageSize));
+    }
+
+    /**
+     * 商品搜索（公开）。
+     *
+     * <p>ES 可用时走相关性排序；ES 不可用时自动降级为数据库模糊查询，
+     * 接口语义不变（只是慢一点、排序差一点）。
+     */
+    @GetMapping("/search")
+    @RateLimit(rule = "product-detail",
+            dimensions = {RateLimitDimension.IP, RateLimitDimension.API},
+            message = "搜索太频繁了，请稍后再试")
+    public Result<PageResult<ProductVO>> search(@RequestParam String keyword,
+                                                @RequestParam(defaultValue = "1") long pageNum,
+                                                @RequestParam(defaultValue = "10") long pageSize) {
+        return Result.ok(searchService.search(keyword, pageNum, pageSize));
     }
 
     /**

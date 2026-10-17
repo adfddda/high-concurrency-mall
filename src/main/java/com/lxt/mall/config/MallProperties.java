@@ -34,6 +34,7 @@ public class MallProperties {
     private Demo demo = new Demo();
     private Admin admin = new Admin();
     private Trade trade = new Trade();
+    private Search search = new Search();
 
     // ========================================================================
 
@@ -174,6 +175,22 @@ public class MallProperties {
      * 真实系统应该走统一权限中心（角色 → 权限点 → 接口），并且管理员身份
      * 不能只体现在用户名上，还要有独立的认证策略（如 U2F / 内网限制）。
      */
+    /**
+     * 商品搜索（Elasticsearch）。
+     *
+     * <p>{@code enabled=false} 时整条 ES 链路关闭，搜索直接走数据库。
+     * 这不是"没配好"的兜底，而是刻意的设计：搜索是<b>可选能力</b>，
+     * 本地开发、CI 的部分场景都不需要它。
+     */
+    @Data
+    public static class Search {
+        private boolean enabled = false;
+        private String endpoint = "http://localhost:9200";
+        private String index = "mall_product";
+        /** 启动时是否全量重建索引。 */
+        private boolean reindexOnStartup = true;
+    }
+
     @Data
     public static class Admin {
         /** 允许访问 /api/admin/** 的用户名。生产环境务必通过配置覆盖。 */

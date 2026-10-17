@@ -279,6 +279,13 @@ mall:
     # 发货后 N 天自动确认收货（影响商家结算与售后时效）
     auto-confirm-days: ${TRADE_AUTO_CONFIRM_DAYS:7}
 
+  # 商品搜索（Elasticsearch）。关闭时直接走数据库 LIKE 查询。
+  search:
+    enabled: ${SEARCH_ENABLED:false}
+    endpoint: ${SEARCH_ENDPOINT:http://localhost:9200}
+    index: mall_product
+    reindex-on-startup: true
+
   # 运维接口（/api/admin/**）的访问白名单。
   # 生产环境必须覆盖：ADMIN_USERNAMES=ops1,ops2，并接入统一权限中心。
   admin:

@@ -71,6 +71,13 @@ mall:
   rate-limit:
     enabled: true
     fail-open: true
+  # 搜索默认关闭（测试环境不一定有 ES）。
+  # CI 里通过环境变量 MALL_SEARCH_ENABLED=true 打开，跑真实 ES 链路。
+  search:
+    enabled: ${MALL_SEARCH_ENABLED:false}
+    endpoint: ${MALL_SEARCH_ENDPOINT:http://localhost:9200}
+    index: mall_product_test
+    reindex-on-startup: true
   job:
     preheat:
       enabled: false
