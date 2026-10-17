@@ -1,17 +1,30 @@
-# 高并发商城交易系统
+# 分布式交易系统 · 秒杀 / 库存一致性 / 可靠消息
 
-> 面向**商品浏览 + 限时秒杀**场景的 Spring Boot 3 / Java 21 交易系统。
-> 覆盖用户认证、商品缓存、库存预热、抢购下单、订单查询、支付与超时关单的完整链路，
-> 重点解决四个问题：**瞬时高并发不超卖**、**缓存与数据库的一致性**、**消息不丢不重**、**故障可自愈**。
+> **一句话定位**：把「瞬时数万请求、而数据库只能扛几千」的秒杀场景，做成一套**可运行、可压测、可自证**的工程方案——
+> 三级漏斗挡掉 99.9% 的流量，数据库约束兜住最后一道，最终一致性由对账任务自动收敛。
 
 <p>
+<a href="https://github.com/adfddda/high-concurrency-mall/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/adfddda/high-concurrency-mall/actions/workflows/ci.yml/badge.svg"></a>
 <img alt="java" src="https://img.shields.io/badge/Java-21-orange">
 <img alt="spring" src="https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen">
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-40%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-43%20passed-success">
 </p>
+
+---
+
+## 系统规模
+
+| 维度 | 规模 |
+|---|---|
+| REST 接口 | **25** 个（认证 / 商品 / 秒杀 / 订单 / 运维可观测） |
+| 数据表 | **7** 张，3 组唯一索引 + `CHECK` 约束兜底 |
+| Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
+| 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
+| 自动化测试 | **43** 个用例，含 800 并发不超卖、MQ 全挂演练 |
+| 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
 
