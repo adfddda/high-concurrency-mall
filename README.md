@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-96%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-101%20passed-success">
 </p>
 
 ---
@@ -58,7 +58,7 @@ flowchart LR
 | 数据表 | **17** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **96** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **101** 个用例（96 业务 + 5 网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -600,6 +600,7 @@ mvn test
 | **[06-简历描述](docs/06-resume.md)** | STAR 结构的项目描述 + 可能的追问方向 | 写简历 |
 | **[12-加固记录](docs/12-hardening.md)** | **9 个"测试全绿但逻辑确实错了"的缺陷**：怎么发现、为什么危险、怎么修 | **最能体现工程严谨性的一份** |
 | **[13-扩容与演进](docs/13-scaling-and-evolution.md)** | 分库分表（分片键怎么选、唯一约束怎么保住、四步不停机迁移）与 Canal 同步的**可执行设计**；明确标注"设计完成、未实现" | 被问"怎么扩容"时看 |
+| **[14-运维手册](docs/14-runbook.md)** | 上线检查清单、告警阈值、应急开关、**9 个故障处置剧本**、值班命令、数据修复纪律 | 凌晨三点被叫醒时看 |
 
 ---
 
