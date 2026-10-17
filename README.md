@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-50%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-56%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **30** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| REST 接口 | **32** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
 | 数据表 | **10** 张，3 组唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **50** 个用例，含 800 并发不超卖、MQ 全挂演练、支付/退款幂等 |
+| 自动化测试 | **56** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -275,6 +275,31 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 > 普通下单要的是确定性：条件 UPDATE 扣库存 + 同步落库，点一下就能看到订单号。
 > **按场景选架构，而不是把高并发方案套到所有写链路上**——这是这两条链路放在一起的意义。
 
+### 订单状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> PAID: 支付回调
+    CREATED --> CANCELED: 超时关单 / 主动取消
+    PAID --> SHIPPED: 发货（管理端）
+    PAID --> REFUNDED: 退款
+    SHIPPED --> FINISHED: 确认收货 / 超期自动确认
+    CANCELED --> [*]
+    REFUNDED --> [*]
+    FINISHED --> [*]
+```
+
+**每一次迁移都是「带前驱状态的 UPDATE」，靠影响行数判断竞争结果**：
+
+```sql
+UPDATE t_order SET status = 5, ship_time = ?
+ WHERE order_no = ? AND status = 1   -- 只有 PAID 能被发货
+```
+
+这样「用户点确认收货」和「定时任务自动确认」同时发生时，只有一个能改到行。
+不需要分布式锁，也不会出现"完成了两次"导致的重复结算。
+
 ### 订单 `/api/order`
 
 | 方法 | 路径 | 鉴权 | 说明 |
@@ -282,6 +307,7 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 | GET | `/{orderNo}` | ✓（校验归属） | 订单详情 |
 | GET | `/list` | ✓ | 我的订单 |
 | POST | `/{orderNo}/pay` | ✓ | 模拟支付（条件更新，重复回调会被拒） |
+| POST | `/{orderNo}/confirm` | ✓（校验归属） | 确认收货（`SHIPPED → FINISHED`） |
 | POST | `/{orderNo}/cancel` | ✓ | 主动取消并回补库存 |
 
 ### 运维可观测 `/api/admin`
@@ -295,6 +321,7 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 | GET | `/seckill/{id}/redis-state` | Redis 侧库存 / 在途 / 已购人数 / 本地售罄标记 |
 | GET | `/seckill/reconcile` | **库存对账：Redis vs DB 是否一致** |
 | GET | `/mq/pending` | 待确认投递数量（>0 说明 broker 或网络有问题） |
+| POST | `/orders/{orderNo}/ship` | **发货**（`PAID → SHIPPED`），管理端专用 |
 
 ---
 
