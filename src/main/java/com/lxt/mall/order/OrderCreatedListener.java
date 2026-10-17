@@ -39,7 +39,7 @@ public class OrderCreatedListener {
 
     private final SeckillStockService stockService;
     private final SeckillResultService resultService;
-    private final ReliableMessageSender messageSender;
+    private final com.lxt.mall.mq.MessagePublisher messageSender;
     private final MallProperties properties;
     private final MallMetrics metrics;
 

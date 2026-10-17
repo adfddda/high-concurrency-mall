@@ -7,8 +7,7 @@ import com.lxt.mall.config.MallProperties;
 import com.lxt.mall.domain.enums.SeckillMode;
 import com.lxt.mall.metrics.MallMetrics;
 import com.lxt.mall.mq.ReliableMessageSender;
-import com.lxt.mall.order.dto.OrderVO;
-import com.lxt.mall.seckill.dto.CachedOrder;
+import com.lxt.mall.order.dto.OrderVO;import com.lxt.mall.seckill.dto.CachedOrder;
 import com.lxt.mall.seckill.dto.SeckillResponse;
 import com.lxt.mall.seckill.dto.SeckillResultVO;
 import com.lxt.mall.seckill.message.SeckillOrderMessage;
@@ -62,7 +61,7 @@ public class SeckillService {
     private final SeckillResultService resultService;
     private final LocalSoldOutCache localSoldOutCache;
     private final SeckillRiskGuard riskGuard;
-    private final ReliableMessageSender messageSender;
+    private final com.lxt.mall.mq.MessagePublisher messageSender;
     private final MallProperties properties;
     private final MallMetrics metrics;
     private final Clock clock;
