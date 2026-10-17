@@ -124,6 +124,36 @@ sequenceDiagram
 
 ---
 
+## 可观测性：能看见，才谈得上优化
+
+`docker compose --profile full up -d` 之后，四个入口全部就绪：
+
+| 入口 | 地址 | 用途 |
+|---|---|---|
+| **Grafana** | http://localhost:3000 | admin/admin，看板 `Mall Overview` 已自动装载 |
+| Prometheus | http://localhost:9090 | 原始指标，可直接跑 PromQL |
+| Jaeger | http://localhost:16686 | 链路追踪：HTTP → MQ → 消费端 |
+| Swagger UI | http://localhost:8081/swagger-ui.html | 接口文档，可直接调试 |
+
+看板里的 8 个面板各自回答一个问题：
+
+| 面板 | 回答什么问题 |
+|---|---|
+| 秒杀结果分布 | 流量卡在哪一层：受理 / 售罄 / 重复 / 未预热 / 风控拦截 / MQ 失败 |
+| 缓存层级命中 | 多级缓存是否真的挡住了数据库（`DB` 那条线应该是零） |
+| Lua P99 | Redis 是不是瓶颈（持续抬升 = 单分片被打满） |
+| Hikari pending | 连接池是否打满——它是接口 RT 抬升的先行指标 |
+| 限流拒绝（按维度） | 限流是在保护还是在误伤 |
+| HTTP 吞吐 / P95·P99 / JVM 堆 | 基础盘 |
+
+压测脚本见 [scripts/k6/README.md](scripts/k6/README.md)：
+`browse.js` 压缓存链路、`seckill.js` 压秒杀，**阈值不达标时 k6 以非 0 退出码结束**，可以直接当性能回归门禁。
+
+> 指标不是"装个 Grafana 就有了"。这个项目的每个关键设计都对应一个可观测信号：
+> 缓存命中率、Lua 耗时、MQ 事件、库存漂移、风控拦截——**没有信号的设计等于没有设计**。
+
+---
+
 ## 快速开始
 
 ### 前置要求
@@ -156,6 +186,10 @@ docker compose --profile full up -d --build
 | RabbitMQ | 5672 / **15672**(控制台) | 同 | mall / mall123456 |
 | 应用 | 8080 | 8080 | — |
 | 网关 | **8081** | 8080 | 对外入口（full profile） |
+| Prometheus | **9090** | 9090 | 指标存储（full profile） |
+| Grafana | **3000** | 3000 | 看板，admin/admin（full profile） |
+| Jaeger | **16686** | 16686 | 链路追踪 UI（full profile） |
+| Elasticsearch | **9200** | 9200 | 商品搜索（full profile） |
 
 ```bash
 java -jar target/high-concurrency-mall.jar --spring.profiles.active=docker

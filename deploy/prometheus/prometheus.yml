@@ -1,0 +1,26 @@
+# ============================================================================
+#  Prometheus 抓取配置
+#
+#  只抓两个目标：业务服务与网关。两者都通过 /actuator/prometheus 暴露
+#  Micrometer 指标，不需要额外的 exporter——这是 Spring Boot 生态的优势，
+#  业务埋点（缓存命中、Lua 耗时、MQ 事件）和应用指标（JVM、Hikari、HTTP）
+#  在同一个端点里，天然可以做关联分析。
+# ============================================================================
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: mall-app
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app:8080"]
+
+  - job_name: mall-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["gateway:8080"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
