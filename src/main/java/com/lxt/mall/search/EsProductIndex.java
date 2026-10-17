@@ -117,7 +117,13 @@ public class EsProductIndex {
                     "query", Map.of("bool", Map.of(
                             "must", Map.of("multi_match", Map.of(
                                     "query", keyword,
-                                    "fields", List.of("title^2", "subTitle"))),
+                                    "fields", List.of("title^2", "subTitle"),
+                                    // operator=and：所有分词都必须命中。
+                                    // 默认是 or，而标准分词器会把中文按字切分，
+                                    // 于是"不存在的商品"里的"商""品"都能命中，
+                                    // 用户搜一个不存在的词却得到一堆无关结果。
+                                    // 对商品搜索来说，召回宁可少一点，也不能全是噪声。
+                                    "operator", "and")),
                             "filter", Map.of("term", Map.of("status", 1)))),
                     "sort", List.of(Map.of("_score", "desc")));
 
