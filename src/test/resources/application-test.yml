@@ -80,3 +80,5 @@ mall:
       enabled: false
     activity-status:
       enabled: false
+    auto-confirm:
+      enabled: false

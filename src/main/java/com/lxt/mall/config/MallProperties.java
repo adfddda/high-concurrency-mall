@@ -191,6 +191,14 @@ public class MallProperties {
     @Data
     public static class Trade {
         private Duration orderExpire = Duration.ofMinutes(30);
+
+        /**
+         * 发货后多少天自动确认收货。
+         *
+         * <p>直接影响商家结算与售后时效，属于平台级规则而不是用户偏好。
+         * 真实业务里通常按类目配置（虚拟商品立即确认、生鲜 1 天、普通商品 7~15 天）。
+         */
+        private int autoConfirmDays = 7;
     }
 
     @Data

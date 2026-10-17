@@ -28,7 +28,21 @@ public enum OrderStatus {
      * 退款发生在支付之后（钱退了，货不能发）。两者都会回补库存，
      * 但触发的业务链路完全不同，所以必须是两个状态。
      */
-    REFUNDED(4, "已退款");
+    REFUNDED(4, "已退款"),
+    /**
+     * 已发货。
+     *
+     * <p>引入它的原因：{@code PAID} 和 {@code FINISHED} 之间原本是断开的——
+     * 支付完成就停在"已支付"，没有任何代码会把订单推进到"已完成"，
+     * 于是 {@code FINISHED} 成了一个永远不可达的死状态。
+     * 履约链路补上后，状态机才真正闭合：
+     * <pre>
+     *   CREATED → PAID → SHIPPED → FINISHED
+     *      ↓        ↓
+     *   CANCELED  REFUNDED
+     * </pre>
+     */
+    SHIPPED(5, "已发货");
 
     @EnumValue
     private final int code;

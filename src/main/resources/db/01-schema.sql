@@ -97,10 +97,12 @@ CREATE TABLE IF NOT EXISTS t_order
     seckill_price DECIMAL(10, 2)  NOT NULL COMMENT '成交单价快照',
     quantity      INT             NOT NULL DEFAULT 1 COMMENT '数量',
     pay_amount    DECIMAL(10, 2)  NOT NULL COMMENT '应付金额',
-    status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已取消 3已完成 4已退款',
+    status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已取消 3已完成 4已退款 5已发货',
     message_id    VARCHAR(64)              DEFAULT NULL COMMENT '创建该订单的 MQ 消息ID（普通订单为 NULL）',
     pay_time      DATETIME(3)              DEFAULT NULL,
     cancel_time   DATETIME(3)              DEFAULT NULL,
+    ship_time     DATETIME(3)              DEFAULT NULL COMMENT '发货时间，自动确认收货的计时起点',
+    finish_time   DATETIME(3)              DEFAULT NULL COMMENT '完成时间（手动/自动确认收货）',
     expire_time   DATETIME(3)     NOT NULL COMMENT '超时关单时间点',
     create_time   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     update_time   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -113,6 +115,8 @@ CREATE TABLE IF NOT EXISTS t_order
     -- 消息幂等：同一消息重复投递时，第二条 INSERT 直接撞唯一键，天然去重
     UNIQUE KEY uk_message_id (message_id),
     KEY idx_status_expire (status, expire_time),
+    -- 自动确认收货任务按 (status, ship_time) 扫描
+    KEY idx_status_ship (status, ship_time),
     KEY idx_user_create (user_id, create_time),
     KEY idx_activity (activity_id),
     KEY idx_sku (sku_id)

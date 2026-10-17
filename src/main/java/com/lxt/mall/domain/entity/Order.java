@@ -71,6 +71,12 @@ public class Order implements Serializable {
 
     private LocalDateTime cancelTime;
 
+    /** 发货时间。自动确认收货的计时起点。 */
+    private LocalDateTime shipTime;
+
+    /** 完成时间（用户确认收货 / 系统自动确认）。 */
+    private LocalDateTime finishTime;
+
     /** 超时关单时间点，由延迟队列消息触达时校验，双保险。 */
     private LocalDateTime expireTime;
 

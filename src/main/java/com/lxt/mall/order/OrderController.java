@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderService orderService;
+    private final FulfillmentService fulfillmentService;
 
     /**
      * 订单详情。
@@ -52,5 +53,18 @@ public class OrderController {
         orderService.queryVO(orderNo, UserContext.requireUserId());
         OrderService.CancelResult result = orderService.cancelIfUnpaid(orderNo, "用户主动取消");
         return Result.ok(result.canceled());
+    }
+
+    /**
+     * 确认收货。
+     *
+     * <p>归属校验在 Service 里做（而不是像其他接口那样先 queryVO）：
+     * 确认收货只需要订单的归属信息，多查一次订单明细是浪费。
+     * 但校验本身不能省——否则任何人都能替别人确认收货，
+     * 提前触发商家结算。
+     */
+    @PostMapping("/{orderNo}/confirm")
+    public Result<Boolean> confirm(@PathVariable String orderNo) {
+        return Result.ok(fulfillmentService.confirm(orderNo, UserContext.requireUserId()));
     }
 }

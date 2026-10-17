@@ -76,4 +76,34 @@ public interface OrderMapper extends BaseMapper<Order> {
                AND status = 1
             """)
     int markRefunded(@Param("orderNo") String orderNo);
+
+    /**
+     * 发货：PAID -> SHIPPED。
+     *
+     * <p>带 {@code status = 1} 条件，重复调用只会有一次生效。
+     * 发货是<b>不可逆的外部动作</b>（货已经交给物流了），
+     * 所以它必须比支付更严格地防重复。
+     */
+    @Update("""
+            UPDATE t_order
+               SET status = 5, ship_time = #{shipTime}
+             WHERE order_no = #{orderNo}
+               AND status = 1
+            """)
+    int markShipped(@Param("orderNo") String orderNo, @Param("shipTime") LocalDateTime shipTime);
+
+    /**
+     * 确认收货：SHIPPED -> FINISHED。
+     *
+     * <p>前驱状态是 SHIPPED 而不是 PAID：没发货就不存在"确认收货"。
+     * 同时它是自动确认收货任务的唯一入口——用户手动确认和任务自动确认
+     * 走同一条状态迁移，只有一个能成功。
+     */
+    @Update("""
+            UPDATE t_order
+               SET status = 3, finish_time = #{finishTime}
+             WHERE order_no = #{orderNo}
+               AND status = 5
+            """)
+    int markFinished(@Param("orderNo") String orderNo, @Param("finishTime") LocalDateTime finishTime);
 }

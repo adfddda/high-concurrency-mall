@@ -265,8 +265,7 @@ mall:
     confirm-timeout: 5s
 
   reconcile:
-    enabled: ${RECONCILE_ENABLED:true}
-    # 每 5 分钟对账一次：Redis 剩余库存 vs (DB 剩余库存 - 在途)
+    enabled: ${RECONCILE_ENABLED:true}    # 每 5 分钟对账一次：Redis 剩余库存 vs (DB 剩余库存 - 在途)
     cron: "0 */5 * * * ?"
     # 允许的漂移容忍度，抖动窗口内不修
     drift-tolerance: 0
@@ -277,6 +276,8 @@ mall:
   # 秒杀只有 30 秒（库存要尽快释放给下一个人），普通订单给 30 分钟才符合预期。
   trade:
     order-expire: ${TRADE_ORDER_EXPIRE:30m}
+    # 发货后 N 天自动确认收货（影响商家结算与售后时效）
+    auto-confirm-days: ${TRADE_AUTO_CONFIRM_DAYS:7}
 
   # 运维接口（/api/admin/**）的访问白名单。
   # 生产环境必须覆盖：ADMIN_USERNAMES=ops1,ops2，并接入统一权限中心。
