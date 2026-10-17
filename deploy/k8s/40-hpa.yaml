@@ -1,0 +1,45 @@
+# ============================================================================
+#  弹性伸缩
+#
+#  为什么用 CPU 而不是 QPS 作为指标：
+#   HPA 只能读 Metrics API 暴露的指标，CPU/内存是开箱即用的；
+#   自定义指标（QPS）需要 Prometheus Adapter 做转换，属于额外建设。
+#   对秒杀这种"突发流量"场景，CPU 上升本身就是最直接的扩容信号。
+#
+#  ⚠️ 扩容有延迟（拉镜像 + 启动 + 预热），秒杀开始那 30 秒它救不了你。
+#     真正的秒杀容量靠【活动前手动扩容】+【排队/抽签削峰】，
+#     HPA 只是应对"日常流量缓慢上涨"的兜底。
+# ============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mall-app
+  namespace: mall
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mall-app
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # 缩容要慢：流量刚回落就砍实例，容易在二次波动时被打穿
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

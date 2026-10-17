@@ -45,6 +45,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/trade/payment/callback",
                         // 健康检查与监控
                         "/actuator/**",
+                        // 接口文档（生产环境建议整体关闭，而不是只靠拦截）
+                        "/v3/api-docs/**",
+                        "/swagger-ui/**",
+                        "/swagger-ui.html",
                         "/error"
                 );
 

@@ -98,6 +98,16 @@ spring:
     init:
       mode: never           # 建表脚本默认不自动执行，见 application-local.yml
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  # 生产环境应关闭：接口文档会暴露内部结构
+  show-actuator: false
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true

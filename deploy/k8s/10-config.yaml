@@ -1,0 +1,49 @@
+# ============================================================================
+#  配置与密钥分离
+#
+#  ConfigMap 放"可以公开"的参数（地址、开关、采样率）；
+#  Secret 放密码与签名密钥。两者的区别不在于"敏感程度"，而在于
+#  【谁能看到】：ConfigMap 通常对集群内所有人可读，Secret 至少做了 base64
+#  与访问控制（虽然 base64 不是加密）。
+#
+#  ⚠️ 生产环境不要把这些值提交进 Git：
+#     应该用 External Secrets / SealedSecrets / 云厂商 KMS 注入。
+#  这里的值是占位符，apply 后必须替换。
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mall-config
+  namespace: mall
+data:
+  SPRING_PROFILES_ACTIVE: "docker"
+  DB_HOST: "mysql.mall.svc.cluster.local"
+  DB_PORT: "3306"
+  DB_NAME: "mall_trade"
+  DB_USER: "mall"
+  REDIS_HOST: "redis.mall.svc.cluster.local"
+  REDIS_PORT: "6379"
+  RABBIT_HOST: "rabbitmq.mall.svc.cluster.local"
+  RABBIT_PORT: "5672"
+  RABBIT_USER: "mall"
+  # 链路追踪（可选）：集群内 OTLP collector
+  OTEL_ENABLED: "true"
+  OTEL_ENDPOINT: "http://otel-collector:4318/v1/traces"
+  TRACING_SAMPLE_RATE: "0.1"
+  # 搜索（可选）：连不上会自动降级到数据库
+  SEARCH_ENABLED: "true"
+  SEARCH_ENDPOINT: "http://elasticsearch.mall.svc.cluster.local:9200"
+  VIRTUAL_THREADS: "true"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mall-secret
+  namespace: mall
+type: Opaque
+stringData:
+  DB_PASSWORD: "REPLACE_ME"
+  RABBIT_PASSWORD: "REPLACE_ME"
+  JWT_SECRET: "REPLACE_ME_WITH_AT_LEAST_32_CHARS"
+  ADMIN_USERNAMES: "ops-admin"

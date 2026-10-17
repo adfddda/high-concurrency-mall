@@ -48,6 +48,17 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!--
+          OpenAPI 3 文档：/v3/api-docs + /swagger-ui.html。
+          2.8.x 对应 Spring Boot 3.5；3.x 是给 Boot 4 的，不要升。
+          加它的收益不是"好看"，而是让接口契约可以被工具消费：
+          前端联调、契约测试、甚至自动生成 SDK 都基于同一份 spec。
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.8.17</version>
+        </dependency>
+        <!--
           分布式链路追踪：Micrometer Tracing + OpenTelemetry。
           选 OTel 桥接而不是 Brave：OTel 是厂商中立标准，导出的 span 既能进
           Jaeger/Tempo，也能直接给云厂商的 APM，不会把项目锁死在某一家。

@@ -1,0 +1,103 @@
+# ============================================================================
+#  业务服务
+#
+#  三个刻意写对的细节：
+#   1. MaxRAMPercentage 而不是 -Xmx：容器内存限制变了 JVM 自动跟随，
+#      写死 -Xmx 是"本地能跑、上 K8s 就 OOMKilled"的头号原因；
+#   2. readinessProbe 用 /actuator/health：依赖没就绪时不接流量，
+#      livenessProbe 只判断进程是否活着——两者混用会导致"启动慢就被重启"的死循环；
+#   3. 滚动更新 maxUnavailable=0：任何时候都不能把在跑的实例全部摘掉。
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mall-app
+  namespace: mall
+  labels:
+    app: mall-app
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: mall-app
+  template:
+    metadata:
+      labels:
+        app: mall-app
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app
+          image: ghcr.io/adfddda/high-concurrency-mall:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: mall-config
+            - secretRef:
+                name: mall-secret
+          env:
+            - name: JAVA_OPTS
+              value: "-XX:MaxRAMPercentage=70 -XX:+UseZGC"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1536Mi"
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 4
+          lifecycle:
+            preStop:
+              exec:
+                # 先摘流量再停机，避免滚动更新时出现 502
+                command: ["sh", "-c", "sleep 10"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 10001
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mall-app
+  namespace: mall
+  labels:
+    app: mall-app
+spec:
+  type: ClusterIP
+  selector:
+    app: mall-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
