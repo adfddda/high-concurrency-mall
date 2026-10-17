@@ -20,7 +20,15 @@ public enum OrderStatus {
     CREATED(0, "待支付"),
     PAID(1, "已支付"),
     CANCELED(2, "已取消"),
-    FINISHED(3, "已完成");
+    FINISHED(3, "已完成"),
+    /**
+     * 已退款。
+     *
+     * <p>注意它和"已取消"的区别：取消发生在支付之前（订单作废，库存回补），
+     * 退款发生在支付之后（钱退了，货不能发）。两者都会回补库存，
+     * 但触发的业务链路完全不同，所以必须是两个状态。
+     */
+    REFUNDED(4, "已退款");
 
     @EnumValue
     private final int code;

@@ -43,7 +43,14 @@ public class Order implements Serializable {
 
     private Long userId;
 
+    /** 订单来源：0 秒杀 / 1 普通。见 {@link com.lxt.mall.domain.enums.OrderBizType}。 */
+    private Integer bizType;
+
+    /** 秒杀活动 ID；普通订单为 null（数据库唯一索引允许多个 NULL）。 */
     private Long activityId;
+
+    /** SKU ID；秒杀订单为 null（秒杀是单 SKU 特例，库存挂在活动上）。 */
+    private Long skuId;
 
     private Long productId;
 

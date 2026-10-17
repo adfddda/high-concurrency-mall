@@ -273,6 +273,11 @@ mall:
     # 发现漂移时是否自动修复（面试演示建议开，生产建议先只告警）
     auto-repair: true
 
+  # 普通交易：SKU 下单的支付超时窗口。
+  # 秒杀只有 30 秒（库存要尽快释放给下一个人），普通订单给 30 分钟才符合预期。
+  trade:
+    order-expire: ${TRADE_ORDER_EXPIRE:30m}
+
   # 运维接口（/api/admin/**）的访问白名单。
   # 生产环境必须覆盖：ADMIN_USERNAMES=ops1,ops2，并接入统一权限中心。
   admin:

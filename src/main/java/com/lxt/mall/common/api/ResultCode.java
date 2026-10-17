@@ -47,7 +47,16 @@ public enum ResultCode {
     ORDER_NOT_FOUND(30001, "订单不存在"),
     ORDER_STATUS_CONFLICT(30002, "订单状态已变更，操作失败"),
     ORDER_EXPIRED(30003, "订单已超时关闭"),
-    ORDER_PAID(30004, "订单已支付");
+    ORDER_PAID(30004, "订单已支付"),
+
+    // ---------------- 交易域 3xxxx（SKU / 支付 / 退款） ----------------
+    SKU_NOT_FOUND(30010, "规格不存在或已下架"),
+    SKU_STOCK_NOT_ENOUGH(30011, "库存不足"),
+    PAYMENT_NOT_FOUND(30020, "支付单不存在"),
+    PAYMENT_AMOUNT_MISMATCH(30021, "支付金额与订单金额不一致"),
+    PAYMENT_STATUS_CONFLICT(30022, "支付单状态已变更，操作失败"),
+    REFUND_NOT_ALLOWED(30030, "当前订单状态不支持退款"),
+    REFUND_AMOUNT_MISMATCH(30031, "退款金额与支付金额不一致");
 
     private final int code;
     private final String message;

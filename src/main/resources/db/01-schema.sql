@@ -85,14 +85,20 @@ CREATE TABLE IF NOT EXISTS t_order
     id            BIGINT UNSIGNED NOT NULL COMMENT '订单ID（雪花）',
     order_no      VARCHAR(32)     NOT NULL COMMENT '订单号（业务唯一，对外暴露）',
     user_id       BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
-    activity_id   BIGINT UNSIGNED NOT NULL COMMENT '秒杀活动ID',
+    -- 订单来源：秒杀订单与普通订单共用一张表，靠 biz_type 区分。
+    -- 为什么不分两张表：订单是交易域的核心实体，支付、退款、履约、售后
+    -- 都要按订单操作。分两张表意味着这些逻辑全部要写两遍，
+    -- 而两者的差异其实只有"库存从哪来"和"是否受活动约束"。
+    biz_type      TINYINT         NOT NULL DEFAULT 0 COMMENT '0 秒杀 1 普通',
+    activity_id   BIGINT UNSIGNED          DEFAULT NULL COMMENT '秒杀活动ID（普通订单为 NULL）',
+    sku_id        BIGINT UNSIGNED          DEFAULT NULL COMMENT 'SKU ID（秒杀订单为 NULL）',
     product_id    BIGINT UNSIGNED NOT NULL COMMENT '商品ID',
     product_title VARCHAR(128)    NOT NULL COMMENT '商品标题快照',
     seckill_price DECIMAL(10, 2)  NOT NULL COMMENT '成交单价快照',
     quantity      INT             NOT NULL DEFAULT 1 COMMENT '数量',
     pay_amount    DECIMAL(10, 2)  NOT NULL COMMENT '应付金额',
-    status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已取消 3已完成',
-    message_id    VARCHAR(64)     NOT NULL COMMENT '创建该订单的 MQ 消息ID（幂等）',
+    status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1已支付 2已取消 3已完成 4已退款',
+    message_id    VARCHAR(64)              DEFAULT NULL COMMENT '创建该订单的 MQ 消息ID（普通订单为 NULL）',
     pay_time      DATETIME(3)              DEFAULT NULL,
     cancel_time   DATETIME(3)              DEFAULT NULL,
     expire_time   DATETIME(3)     NOT NULL COMMENT '超时关单时间点',
@@ -100,16 +106,109 @@ CREATE TABLE IF NOT EXISTS t_order
     update_time   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uk_order_no (order_no),
-    -- 一人一单：Redis 的 Set 判定只是「准入闸门」，真正的强约束在数据库
+    -- 一人一单：Redis 的 Set 判定只是「准入闸门」，真正的强约束在数据库。
+    -- 注意 MySQL 的唯一索引允许多个 NULL：普通订单 activity_id 为 NULL，
+    -- 因此不受这条约束影响，同一个用户可以对同一个 SKU 下多单。
     UNIQUE KEY uk_user_activity (user_id, activity_id),
     -- 消息幂等：同一消息重复投递时，第二条 INSERT 直接撞唯一键，天然去重
     UNIQUE KEY uk_message_id (message_id),
     KEY idx_status_expire (status, expire_time),
     KEY idx_user_create (user_id, create_time),
-    KEY idx_activity (activity_id)
+    KEY idx_activity (activity_id),
+    KEY idx_sku (sku_id)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_general_ci COMMENT ='订单';
+
+
+-- ============================================================================
+--  SKU：商品的可售单元
+--
+--  原项目的 t_product 其实是一个"单 SKU 商品"的特例：价格、库存都挂在
+--  商品上。真实电商里一个商品有多个 SKU（颜色 × 容量），价格和库存
+--  都挂在 SKU 上，商品（SPU）只负责描述。
+--
+--  这里刻意保留 t_product 不动，新增 t_sku 作为普通下单的库存维度：
+--  改造成本低，也能和秒杀（单 SKU 特例）形成对照。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_sku
+(
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'SKU ID',
+    product_id  BIGINT UNSIGNED NOT NULL COMMENT '所属商品',
+    sku_code    VARCHAR(64)     NOT NULL COMMENT 'SKU 编码（对外展示/对接上游）',
+    spec_json   VARCHAR(512)             DEFAULT NULL COMMENT '规格快照，如 {"颜色":"黑","容量":"512G"}',
+    price       DECIMAL(10, 2)  NOT NULL COMMENT '售价',
+    stock       INT             NOT NULL DEFAULT 0 COMMENT '可售库存',
+    status      TINYINT         NOT NULL DEFAULT 1 COMMENT '1 在售 0 下架',
+    version     INT             NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+    create_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_sku_code (sku_code),
+    KEY idx_product (product_id),
+    -- 库存不能为负的最后一道防线（与活动表的 CHECK 同理）
+    CONSTRAINT ck_sku_stock_non_negative CHECK (stock >= 0)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='SKU';
+
+
+-- ============================================================================
+--  支付单
+--
+--  为什么要单独的支付表，而不是直接在订单上加个 pay_status：
+--   1. 一个订单可能有多笔支付尝试（超时关闭后重新支付、换渠道重试）；
+--   2. 支付渠道对账必须以「支付单」为单位，渠道流水号、回调时间、
+--      手续费这些都是支付单的属性，不属于订单；
+--   3. 回调幂等需要一个"渠道维度的唯一键"（payment_no / channel_trade_no），
+--      挂在订单上就失去了这个维度。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_payment
+(
+    id               BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    payment_no       VARCHAR(32)     NOT NULL COMMENT '支付单号（对外）',
+    order_no         VARCHAR(32)     NOT NULL COMMENT '关联订单号',
+    channel          TINYINT         NOT NULL DEFAULT 1 COMMENT '1 模拟渠道 2 支付宝 3 微信',
+    amount           DECIMAL(10, 2)  NOT NULL COMMENT '支付金额',
+    status           TINYINT         NOT NULL DEFAULT 0 COMMENT '0待支付 1成功 2已关闭 3已退款',
+    channel_trade_no VARCHAR(64)              DEFAULT NULL COMMENT '渠道流水号（对账用）',
+    callback_time    DATETIME(3)              DEFAULT NULL COMMENT '渠道回调时间',
+    create_time      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_payment_no (payment_no),
+    -- 一个订单同时只允许一笔有效支付单：重复发起支付时直接复用，避免重复扣款
+    UNIQUE KEY uk_order_no (order_no),
+    KEY idx_channel_trade (channel_trade_no)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='支付单';
+
+
+-- ============================================================================
+--  退款单
+--  uk_order_no 保证"一个订单最多退一次"，这是退款幂等的关键：
+--  退款接口被重复调用、或渠道回调重复抵达时，第二次直接撞唯一键。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_refund
+(
+    id          BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    refund_no   VARCHAR(32)     NOT NULL COMMENT '退款单号',
+    order_no    VARCHAR(32)     NOT NULL COMMENT '关联订单号',
+    user_id     BIGINT UNSIGNED NOT NULL COMMENT '申请用户',
+    amount      DECIMAL(10, 2)  NOT NULL COMMENT '退款金额',
+    reason      VARCHAR(256)             DEFAULT NULL,
+    status      TINYINT         NOT NULL DEFAULT 0 COMMENT '0处理中 1成功 2拒绝',
+    refund_time DATETIME(3)              DEFAULT NULL,
+    create_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_refund_no (refund_no),
+    UNIQUE KEY uk_order_no (order_no),
+    KEY idx_user (user_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='退款单';
 
 
 CREATE TABLE IF NOT EXISTS t_order_item

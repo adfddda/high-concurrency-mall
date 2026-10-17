@@ -62,4 +62,18 @@ public interface OrderMapper extends BaseMapper<Order> {
                AND status = 1
             """)
     int finishOrder(@Param("orderNo") String orderNo);
+
+    /**
+     * 退款成功：PAID -> REFUNDED。
+     *
+     * <p>必须是 PAID 才能退——未支付的订单应该走"取消"（Canceled），
+     * 而不是"退款"。这两个动作在财务上完全不同：一个是作废，一个是资金流出。
+     */
+    @Update("""
+            UPDATE t_order
+               SET status = 4
+             WHERE order_no = #{orderNo}
+               AND status = 1
+            """)
+    int markRefunded(@Param("orderNo") String orderNo);
 }

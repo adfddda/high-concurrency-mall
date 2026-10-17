@@ -33,6 +33,7 @@ public class MallProperties {
     private Redisson redisson = new Redisson();
     private Demo demo = new Demo();
     private Admin admin = new Admin();
+    private Trade trade = new Trade();
 
     // ========================================================================
 
@@ -177,6 +178,19 @@ public class MallProperties {
     public static class Admin {
         /** 允许访问 /api/admin/** 的用户名。生产环境务必通过配置覆盖。 */
         private List<String> usernames = new ArrayList<>(List.of("lxt"));
+    }
+
+    /**
+     * 普通交易（SKU 下单）配置。
+     *
+     * <p>与秒杀共用一张订单表，但超时时间完全独立：
+     * 秒杀的支付窗口通常只有几十秒（库存要快速释放给下一个人），
+     * 普通订单给 30 分钟才符合用户预期。把两者拆成独立配置，
+     * 而不是复用一个 {@code order-expire}，是因为它们的业务含义不同。
+     */
+    @Data
+    public static class Trade {
+        private Duration orderExpire = Duration.ofMinutes(30);
     }
 
     @Data
