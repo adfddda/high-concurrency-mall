@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-82%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-87%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **44** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
-| 数据表 | **15** 张，唯一索引 + `CHECK` 约束兜底 |
+| REST 接口 | **47** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| 数据表 | **17** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **82** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **87** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -273,6 +273,9 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 | PUT/DELETE | `/cart/{skuId}` | ✓ | 改数量 / 删除 |
 | GET | `/coupons` | ✓ | 我的优惠券（未使用 / 已使用 / 已过期） |
 | POST | `/coupons/{templateId}/claim` | ✓ | 领券（限量，重复领取幂等） |
+| POST | `/group-buy` | ✓ | 开团（3 人成团，24h 有效） |
+| POST | `/group-buy/{groupId}/join` | ✓ | 参团 |
+| GET | `/group-buy/{groupId}` | ✓ | 团详情（进度 / 成员 / 状态） |
 | POST | `/orders/{orderNo}/pay` | ✓ | 发起支付，创建支付单（一个订单只允许一笔） |
 | POST | `/payment/callback` | 验签 | 渠道回调：幂等 + 金额校验 |
 | POST | `/orders/{orderNo}/refund` | ✓ | 全额退款，三层幂等 |
@@ -311,6 +314,29 @@ UPDATE t_order SET status = 5, ship_time = ?
 
 这样「用户点确认收货」和「定时任务自动确认」同时发生时，只有一个能改到行。
 不需要分布式锁，也不会出现"完成了两次"导致的重复结算。
+
+### 拼团：成团判定只能发生一次
+
+```text
+开团 → 参团（各自生成待支付订单，库存已扣）
+        ↓ 每笔支付成功
+   成员状态 0→1（条件更新，谁改到行谁才有资格推进团）
+        ↓
+   团 paid_count+1，够了就置为"已成团"
+        ↓ 到期仍未凑满
+   团置为"已失败" → 未付的关单、已付的退款、库存全部回补
+```
+
+两个容易写错的地方：
+
+1. **`SET` 子句的顺序**：MySQL 会把已赋值的列用在后续表达式里，
+   必须先用旧的 `paid_count` 判断是否成团、再自增。写反了会永远差一人成团，
+   而且不报错——只在测试里断言 `paid_count` 才能发现。
+2. **失败处理不能吞异常**：成员处理失败必须让整批回滚、团回到"进行中"重试。
+   如果吞掉异常继续，团会被置为"已失败"但有人没退到款，而"已失败"的团
+   不会被再次扫描——**这笔钱就永远挂在平台上了**。
+
+> 退款与关单本身都是幂等的（退款单唯一键 + 订单状态机），所以重试是安全的。
 
 ### 风控：限流挡"量"，风控挡"人"
 
