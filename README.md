@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-71%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-75%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **42** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| REST 接口 | **43** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
 | 数据表 | **14** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **71** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **75** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -246,6 +246,7 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 | 方法 | 路径 | 鉴权 | 限流 | 说明 |
 |---|---|---|---|---|
 | GET | `/list` | ✗ | — | 分页列表 |
+| GET | `/search` | ✗ | 50/s（IP+API） | **商品搜索**（ES 优先，不可用时降级数据库） |
 | GET | `/detail/{id}` | ✗ | 50/s（IP+API） | **多级缓存主战场**，响应带 `source` 字段标明 L1/L2/DB |
 | POST | `/` | ✓ | — | 新增商品 |
 | PUT | `/{id}` | ✓ | — | 更新商品（触发 AFTER_COMMIT 缓存失效） |
@@ -469,6 +470,7 @@ mvn test
 | 链路追踪 | **OpenTelemetry + Jaeger** | `traceId` 贯穿 HTTP → MQ → 消费端，日志已带 `%X{traceId}` |
 | 编排 | Docker Compose | 一键起全套 + 多阶段构建镜像 |
 | 网关 | **Spring Cloud Gateway 4.3** | 统一入口 + 限流下沉（Redis 计数，多副本共享配额） |
+| 搜索 | **Elasticsearch 8** | 商品搜索；ES 不可用时自动降级为数据库查询 |
 
 ---
 
