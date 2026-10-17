@@ -279,6 +279,12 @@ mall:
     # 发货后 N 天自动确认收货（影响商家结算与售后时效）
     auto-confirm-days: ${TRADE_AUTO_CONFIRM_DAYS:7}
 
+  # 秒杀风控：限流挡"量"，风控挡"人"。
+  risk:
+    enabled: ${RISK_ENABLED:true}
+    device-limit-per-activity: 1
+    device-id-max-length: 64
+
   # 商品搜索（Elasticsearch）。关闭时直接走数据库 LIKE 查询。
   search:
     enabled: ${SEARCH_ENABLED:false}

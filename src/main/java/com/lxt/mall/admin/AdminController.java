@@ -41,6 +41,7 @@ public class AdminController {
     private final LocalSoldOutCache localSoldOutCache;
     private final com.lxt.mall.order.FulfillmentService fulfillmentService;
     private final com.lxt.mall.seckill.ReservationService reservationService;
+    private final com.lxt.mall.domain.mapper.SeckillRiskHitMapper riskHitMapper;
 
     /** 商品缓存的 L1 命中统计。 */
     @GetMapping("/cache/product/stats")
@@ -141,5 +142,16 @@ public class AdminController {
     public Result<Integer> draw(@PathVariable Long activityId,
                                 @RequestParam(defaultValue = "1.0") double ratio) {
         return Result.ok(reservationService.draw(activityId, ratio));
+    }
+
+    /**
+     * 风控拦截统计。
+     *
+     * <p>回答"这套风控到底挡住了多少"：按原因分组返回拦截次数。
+     * 面试演示时可以现场展示"同一设备第二单被拦"的数据。
+     */
+    @GetMapping("/seckill/{activityId}/risk-hits")
+    public Result<List<Map<String, Object>>> riskHits(@PathVariable Long activityId) {
+        return Result.ok(riskHitMapper.countByReason(activityId));
     }
 }

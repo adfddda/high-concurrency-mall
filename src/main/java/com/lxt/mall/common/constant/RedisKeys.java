@@ -77,6 +77,17 @@ public final class RedisKeys {
         return "seckill:activity:" + activityId;
     }
 
+    /**
+     * 已使用的设备指纹集合，Set。
+     *
+     * <p>为什么要按活动维度而不是全局：同一个用户在 A 活动买过，
+     * 不应该影响他参加 B 活动。"一个设备在一个活动里只能中一次"
+     * 才是限购的准确语义。
+     */
+    public static String seckillRiskDevices(Long activityId) {
+        return "seckill:risk:dev:" + activityTag(activityId);
+    }
+
     /** 秒杀结果，String(JSON)。消费者落库后写入，供前端轮询。 */
     public static String seckillResult(String orderNo) {
         return "seckill:result:" + orderNo;

@@ -200,6 +200,31 @@ CREATE TABLE IF NOT EXISTS t_coupon
   COLLATE = utf8mb4_general_ci COMMENT ='用户优惠券';
 
 
+-- ============================================================================
+--  秒杀风控命中记录
+--
+--  为什么要把"被拦截的请求"落库：
+--   拦截率是唯一能回答"风控到底有没有用"的指标。只挡不记，
+--   既无法向运营证明价值，也无法在误杀时回溯。
+--  这张表只记录【被拦截】的请求（正常请求不写），因此体量可控。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_seckill_risk_hit
+(
+    id          BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    activity_id BIGINT UNSIGNED NOT NULL,
+    user_id     BIGINT UNSIGNED NOT NULL,
+    device_id   VARCHAR(64)              DEFAULT NULL COMMENT '客户端设备指纹',
+    client_ip   VARCHAR(64)              DEFAULT NULL,
+    reason      VARCHAR(32)     NOT NULL COMMENT 'DEVICE_REPEAT / IP_LIMIT ...',
+    create_time DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_activity_time (activity_id, create_time),
+    KEY idx_user (user_id)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='秒杀风控命中记录';
+
+
 CREATE TABLE IF NOT EXISTS t_order
 (
     id            BIGINT UNSIGNED NOT NULL COMMENT '订单ID（雪花）',

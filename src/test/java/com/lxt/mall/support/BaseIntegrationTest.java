@@ -77,6 +77,7 @@ public abstract class BaseIntegrationTest {
         // 预约记录按 (activity_id, user_id) 唯一，不清会让下一个用例
         // 直接复用上一个用例的预约，抽签结果天然不对
         jdbcTemplate.execute("DELETE FROM t_seckill_reservation");
+        jdbcTemplate.execute("DELETE FROM t_seckill_risk_hit");
         jdbcTemplate.execute("DELETE FROM t_order_item");
         jdbcTemplate.execute("DELETE FROM t_order");
         jdbcTemplate.execute("DELETE FROM t_stock_flow");

@@ -61,21 +61,29 @@ public class SeckillService {
     private final SeckillStockService stockService;
     private final SeckillResultService resultService;
     private final LocalSoldOutCache localSoldOutCache;
+    private final SeckillRiskGuard riskGuard;
     private final ReliableMessageSender messageSender;
     private final MallProperties properties;
     private final MallMetrics metrics;
     private final Clock clock;
 
     public SeckillResponse seckill(Long activityId, Long userId) {
-        return seckill(activityId, userId, null);
+        return seckill(activityId, userId, null, null, null);
+    }
+
+    public SeckillResponse seckill(Long activityId, Long userId, String qualifyCode) {
+        return seckill(activityId, userId, qualifyCode, null, null);
     }
 
     /**
      * 秒杀下单。
      *
      * @param qualifyCode 抽签活动的资格码；直接抢购活动传 null 即可
+     * @param deviceId    客户端设备指纹（可选，用于风控）
+     * @param clientIp    客户端 IP（仅用于风控记录）
      */
-    public SeckillResponse seckill(Long activityId, Long userId, String qualifyCode) {
+    public SeckillResponse seckill(Long activityId, Long userId, String qualifyCode,
+                                   String deviceId, String clientIp) {
         if (userId == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED);
         }
@@ -100,13 +108,21 @@ public class SeckillService {
             throw new BusinessException(ResultCode.SECKILL_SOLD_OUT);
         }
 
-        // ---------- 3. 生成订单号与消息ID ----------
+        // ---------- 3. 风控（设备维度） ----------
+        // 放在 Lua 之前：被风控命中的请求连一次 Redis 扣减都不值得走
+        SeckillRiskGuard.Decision risk = riskGuard.preCheck(activityId, userId, deviceId, clientIp);
+        if (risk.blocked()) {
+            metrics.seckillResult("risk_blocked");
+            throw new BusinessException(ResultCode.SECKILL_RISK_BLOCKED);
+        }
+
+        // ---------- 4. 生成订单号与消息ID ----------
         // 订单号在这里就生成，是为了让接口能立刻把"凭证"返回给前端轮询。
         // 若等消费端生成，接口就只能返回"稍后查询"，前端无从查起。
         String orderNo = generateOrderNo();
         String messageId = generateMessageId();
 
-        // ---------- 4. Redis Lua 原子扣减 ----------
+        // ---------- 5. Redis Lua 原子扣减 ----------
         // 抽签活动必须在本地就先把"没带码"的请求挡掉：
         // 这类请求注定失败，没必要占用一次 Redis 往返。
         SeckillMode mode = SeckillMode.of(snapshot.getMode());
@@ -136,10 +152,15 @@ public class SeckillService {
                 log.error("秒杀活动未预热，请检查预热任务 activityId={}", activityId);
                 throw new BusinessException(ResultCode.SECKILL_NOT_PREPARED);
             }
-            case SUCCESS -> metrics.seckillResult("deduct_success");
+            case SUCCESS -> {
+                metrics.seckillResult("deduct_success");
+                // 只有真正抢到的请求才占用设备名额：
+                // 失败请求不占用，否则等于"没抢到还把你拉黑"
+                riskGuard.markDevice(activityId, deviceId);
+            }
         }
 
-        // ---------- 5. 投递消息 ----------
+        // ---------- 6. 投递消息 ----------
         SeckillOrderMessage message = new SeckillOrderMessage(
                 messageId,
                 orderNo,

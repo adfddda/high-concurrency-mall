@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,9 +58,26 @@ public class SeckillController {
             dimensions = {RateLimitDimension.USER, RateLimitDimension.IP},
             message = "手速太快啦，请稍后再试")
     public Result<SeckillResponse> seckill(@PathVariable Long activityId,
-                                           @RequestParam(required = false) String qualifyCode) {
+                                           @RequestParam(required = false) String qualifyCode,
+                                           @RequestHeader(value = "X-Device-Id", required = false) String deviceId,
+                                           jakarta.servlet.http.HttpServletRequest request) {
         Long userId = UserContext.requireUserId();
-        return Result.ok(seckillService.seckill(activityId, userId, qualifyCode));
+        return Result.ok(seckillService.seckill(activityId, userId, qualifyCode, deviceId, clientIp(request)));
+    }
+
+    /**
+     * 取客户端 IP（仅用于风控记录）。
+     *
+     * <p>注意 {@code X-Forwarded-For} 可被伪造，所以它只能用于"记录/统计"，
+     * 不能作为安全决策依据。真正的拦截依据是设备指纹 + 用户维度限购。
+     */
+    private String clientIp(jakarta.servlet.http.HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            int comma = forwarded.indexOf(',');
+            return (comma > 0 ? forwarded.substring(0, comma) : forwarded).trim();
+        }
+        return request.getRemoteAddr();
     }
 
     /**

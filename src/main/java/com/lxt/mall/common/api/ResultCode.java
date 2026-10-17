@@ -45,6 +45,7 @@ public enum ResultCode {
     SECKILL_NO_QUALIFICATION(20009, "您没有中签资格，或资格码已被使用"),
     RESERVATION_CLOSED(20010, "预约已截止"),
     NOT_LOTTERY_ACTIVITY(20011, "该活动不支持预约抽签"),
+    SECKILL_RISK_BLOCKED(20012, "检测到异常请求，请稍后再试"),
 
     // ---------------- 订单域 3xxxx ----------------
     ORDER_NOT_FOUND(30001, "订单不存在"),

@@ -35,6 +35,7 @@ public class MallProperties {
     private Admin admin = new Admin();
     private Trade trade = new Trade();
     private Search search = new Search();
+    private Risk risk = new Risk();
 
     // ========================================================================
 
@@ -182,6 +183,22 @@ public class MallProperties {
      * 这不是"没配好"的兜底，而是刻意的设计：搜索是<b>可选能力</b>，
      * 本地开发、CI 的部分场景都不需要它。
      */
+    /**
+     * 秒杀风控。
+     *
+     * <p>限流解决"量太大"，风控解决"人不正常"：
+     * 一个人开 100 个账号抢购，每个账号都合法，限流拦不住他，
+     * 只能靠<b>设备维度</b>收敛。这是秒杀最容易被忽略的一层。
+     */
+    @Data
+    public static class Risk {
+        private boolean enabled = true;
+        /** 同一设备在同一活动内的最多购买次数。 */
+        private int deviceLimitPerActivity = 1;
+        /** 设备指纹最大长度（防止被当作超大 key 写入 Redis）。 */
+        private int deviceIdMaxLength = 64;
+    }
+
     @Data
     public static class Search {
         private boolean enabled = false;
