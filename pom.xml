@@ -47,6 +47,21 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!--
+          分布式链路追踪：Micrometer Tracing + OpenTelemetry。
+          选 OTel 桥接而不是 Brave：OTel 是厂商中立标准，导出的 span 既能进
+          Jaeger/Tempo，也能直接给云厂商的 APM，不会把项目锁死在某一家。
+          版本由 Spring Boot 的 dependency-management 托管，不要手写，否则
+          与 Boot 3.5 的 micrometer-tracing 版本矩阵对不上。
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
 
         <!-- ==================== 持久层 ==================== -->
         <dependency>

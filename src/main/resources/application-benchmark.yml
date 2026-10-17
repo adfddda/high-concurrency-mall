@@ -21,6 +21,17 @@ mall:
   rate-limit:
     enabled: false
 
+# 压测时关闭追踪：span 的创建和导出会污染性能数据，
+# 你测出来的是追踪组件的开销，不是业务链路的开销。
+management:
+  tracing:
+    sampling:
+      probability: 0.0
+  otlp:
+    tracing:
+      export:
+        enabled: false
+
   demo:
     seed-enabled: true
     # 一人一单要求每个请求用不同用户，这里多造一些

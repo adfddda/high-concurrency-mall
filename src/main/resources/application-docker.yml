@@ -22,3 +22,15 @@ spring:
       schema-locations: classpath:db/01-schema.sql
       data-locations: classpath:db/02-data.sql
       continue-on-error: false
+
+# 容器编排里有 jaeger（docker compose --profile full 时启动），
+# 打开 OTLP 导出，在 http://localhost:16686 就能看到完整链路。
+management:
+  otlp:
+    tracing:
+      export:
+        enabled: ${OTEL_ENABLED:true}
+      endpoint: ${OTEL_ENDPOINT:http://jaeger:4318/v1/traces}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:1.0}

@@ -78,6 +78,17 @@ services:
       timeout: 10s
       retries: 12
 
+  jaeger:
+    profiles: ["full"]
+    image: jaegertracing/all-in-one:1.62
+    container_name: mall-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP over HTTP（应用通过它上报 span）
+
   app:
     profiles: ["full"]
     build:
@@ -92,6 +103,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: docker
       # 容器内走 service name + 标准端口
@@ -106,6 +119,10 @@ services:
       RABBIT_PORT: "5672"
       RABBIT_USER: mall
       RABBIT_PASSWORD: mall123456
+      # 链路追踪：上报到同网络内的 jaeger
+      OTEL_ENABLED: "true"
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+      TRACING_SAMPLE_RATE: "1.0"
       JAVA_OPTS: "-XX:MaxRAMPercentage=75 -XX:+UseZGC"
     ports:
       - "8080:8080"

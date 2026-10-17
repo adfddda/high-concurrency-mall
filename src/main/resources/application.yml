@@ -78,9 +78,14 @@ spring:
       mandatory: true
       retry:
         enabled: false      # 可靠性由业务侧本地台账 + Confirm 兜底，不用模板重试
+      # 开启可观测性：把 traceId/spanId 注入消息头，消费端据此续接同一个 trace。
+      # 不开的话，一条 MQ 消息在 Jaeger 里会断成两个无关的 trace——
+      # 而这恰恰是最需要串联的一段（生产者成功了，消费者到底做了什么？）。
+      observation-enabled: true
     listener:
       simple:
         acknowledge-mode: manual
+        observation-enabled: true
         prefetch: 50
         concurrency: 4
         max-concurrency: 16
@@ -112,6 +117,23 @@ management:
     web:
       exposure:
         include: health,info,metrics,prometheus,threaddump,heapdump
+  # ==========================================================================
+  #  链路追踪
+  #  · 采样率默认 10%：全采样在高峰期会产生大量 span，代价不只是存储，
+  #    还有导出线程的 CPU 和网络。排查问题时再通过环境变量临时调到 1.0。
+  #  · 默认不导出（OTEL_ENABLED=false）：本地/CI 没有 collector，
+  #    开了导出只会刷连接错误日志。docker profile 里把它打开并指向 jaeger。
+  #  · traceId 会进 MDC，日志格式里已经带上 %X{traceId}，
+  #    于是"一条 HTTP 请求 → MQ 投递 → 消费端落库"可以用同一个 id 串起来。
+  # ==========================================================================
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTEL_ENABLED:false}
   endpoint:
     health:
       show-details: always
@@ -127,8 +149,10 @@ logging:
     root: INFO
     com.lxt.mall: ${LOG_LEVEL:INFO}
     org.springframework.amqp: WARN
+  # traceId 进日志：分布式系统里"没有 traceId 的日志"基本等于不可检索。
+  # %X{traceId:-} 在无追踪上下文时输出空串而不是 "null"，避免日志里出现噪声。
   pattern:
-    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] [%X{traceId:-}] %logger{36} - %msg%n"
 
 # ============================================================================
 #  业务自定义配置（绑定到 com.lxt.mall.config.MallProperties）
