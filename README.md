@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-43%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-50%20passed-success">
 </p>
 
 ---
@@ -19,11 +19,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| REST 接口 | **25** 个（认证 / 商品 / 秒杀 / 订单 / 运维可观测） |
-| 数据表 | **7** 张，3 组唯一索引 + `CHECK` 约束兜底 |
+| REST 接口 | **30** 个（认证 / 商品 / 秒杀 / 交易 / 订单 / 运维可观测） |
+| 数据表 | **10** 张，3 组唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **43** 个用例，含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **50** 个用例，含 800 并发不超卖、MQ 全挂演练、支付/退款幂等 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -236,6 +236,21 @@ curl -s "$BASE/api/admin/mq/pending"            -H "Authorization: Bearer $TOKEN
 | POST | `/activities/{id}/order` | ✓ | **5/s（USER + IP 双维度）** | **抢购主入口** |
 | GET | `/result/{orderNo}` | ✓ | — | 轮询抢购结果 |
 | POST | `/activities/{id}/preheat` | ✓ | — | 手动预热 |
+
+### 交易 `/api/trade`（普通下单，与秒杀形成对照）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| GET | `/skus` | ✗ | 商品的可售 SKU 列表 |
+| POST | `/orders` | ✓ | **普通下单（同步事务扣 SKU 库存）** |
+| POST | `/orders/{orderNo}/pay` | ✓ | 发起支付，创建支付单（一个订单只允许一笔） |
+| POST | `/payment/callback` | 验签 | 渠道回调：幂等 + 金额校验 |
+| POST | `/orders/{orderNo}/refund` | ✓ | 全额退款，三层幂等 |
+
+> **为什么同一个项目里有两套下单链路？**
+> 秒杀要的是吞吐：Redis 预扣 + MQ 削峰，代价是用户要轮询结果。
+> 普通下单要的是确定性：条件 UPDATE 扣库存 + 同步落库，点一下就能看到订单号。
+> **按场景选架构，而不是把高并发方案套到所有写链路上**——这是这两条链路放在一起的意义。
 
 ### 订单 `/api/order`
 
