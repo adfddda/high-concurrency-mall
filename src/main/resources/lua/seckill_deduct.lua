@@ -34,8 +34,14 @@
 local stockKey    = KEYS[1]
 local boughtKey   = KEYS[2]
 local inflightKey = KEYS[3]
+-- KEYS[4]：资格码集合（抽签活动）。它与前三个 key 共享 {act:N} 标签，
+-- 因此同槽，可以在同一个脚本里原子地"校验并消费"资格码。
+local codesKey    = KEYS[4]
 local userId      = ARGV[1]
 local trackInflight = ARGV[2]
+-- ARGV[4]：活动模式 "1"=抽签；ARGV[5]：资格码
+local mode        = ARGV[4]
+local qualifyCode = ARGV[5]
 
 -- 1. 活动是否已预热。GET 到 nil 说明活动信息已被清理或从未预热，
 --    这种情况必须快速失败，绝不能"当作有库存"放过去打 DB。
@@ -54,6 +60,17 @@ end
 --    （MySQL 侧还有 available_stock >= 0 的 CHECK 兜底）。
 if tonumber(stock) <= 0 then
     return 1
+end
+
+-- 3.5 抽签模式：校验并消费资格码。
+--     必须放在"库存足够"之后：库存不足时不应该消耗掉用户的资格，
+--     否则用户中签了却因为来晚一步连资格都没了。
+--     SREM 返回 1 表示码存在且被成功移除——"校验 + 消费"在一次原子操作里，
+--     所以同一个码不可能被用两次。
+if mode == '1' then
+    if redis.call('SREM', codesKey, qualifyCode) == 0 then
+        return 4
+    end
 end
 
 redis.call('DECR', stockKey)

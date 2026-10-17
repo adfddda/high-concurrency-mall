@@ -72,6 +72,9 @@ public abstract class BaseIntegrationTest {
         // "首次支付"被误判为"重复支付"。
         jdbcTemplate.execute("DELETE FROM t_refund");
         jdbcTemplate.execute("DELETE FROM t_payment");
+        // 预约记录按 (activity_id, user_id) 唯一，不清会让下一个用例
+        // 直接复用上一个用例的预约，抽签结果天然不对
+        jdbcTemplate.execute("DELETE FROM t_seckill_reservation");
         jdbcTemplate.execute("DELETE FROM t_order_item");
         jdbcTemplate.execute("DELETE FROM t_order");
         jdbcTemplate.execute("DELETE FROM t_stock_flow");
@@ -110,8 +113,32 @@ public abstract class BaseIntegrationTest {
                 new BigDecimal("9.90"), stock, stock);
     }
 
-    protected int dbAvailableStock(long activityId) {
-        Integer value = jdbcTemplate.queryForObject(
+    /**
+     * 准备一个「预约抽签」类型的活动，且还没开始（预约阶段）。
+     *
+     * <p>为什么单独一个方法：抽签活动的关键前置是"活动尚未开始"，
+     * 而 {@link #prepareActivity} 造的是"已经开始"的活动——
+     * 用同一个helper会导致预约直接被"预约已截止"挡住。
+     */
+    protected void prepareLotteryActivity(long activityId, int stock) {
+        jdbcTemplate.update("""
+                INSERT INTO t_seckill_activity
+                    (id, activity_name, product_id, seckill_price, total_stock, available_stock,
+                     start_time, end_time, status, mode)
+                VALUES (?, ?, ?, ?, ?, ?, DATE_ADD(NOW(3), INTERVAL 10 MINUTE),
+                        DATE_ADD(NOW(3), INTERVAL 1 DAY), 0, 1)
+                ON DUPLICATE KEY UPDATE
+                    total_stock = VALUES(total_stock),
+                    available_stock = VALUES(available_stock),
+                    start_time = VALUES(start_time),
+                    end_time = VALUES(end_time),
+                    status = 0,
+                    mode = 1
+                """, activityId, "抽签活动-" + activityId, TEST_PRODUCT_ID,
+                new BigDecimal("19.90"), stock, stock);
+    }
+
+    protected int dbAvailableStock(long activityId) {        Integer value = jdbcTemplate.queryForObject(
                 "SELECT available_stock FROM t_seckill_activity WHERE id = ?", Integer.class, activityId);
         return value == null ? -1 : value;
     }

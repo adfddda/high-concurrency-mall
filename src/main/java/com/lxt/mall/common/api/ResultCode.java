@@ -42,6 +42,9 @@ public enum ResultCode {
     SECKILL_NOT_PREPARED(20006, "秒杀活动正在准备中，请稍后重试"),
     SECKILL_QUEUEING(20007, "排队中，请稍后查询结果"),
     SECKILL_SUBMIT_FAILED(20008, "抢购请求提交失败，请重试"),
+    SECKILL_NO_QUALIFICATION(20009, "您没有中签资格，或资格码已被使用"),
+    RESERVATION_CLOSED(20010, "预约已截止"),
+    NOT_LOTTERY_ACTIVITY(20011, "该活动不支持预约抽签"),
 
     // ---------------- 订单域 3xxxx ----------------
     ORDER_NOT_FOUND(30001, "订单不存在"),

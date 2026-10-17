@@ -40,6 +40,7 @@ public class AdminController {
     private final MessageSendTracker sendTracker;
     private final LocalSoldOutCache localSoldOutCache;
     private final com.lxt.mall.order.FulfillmentService fulfillmentService;
+    private final com.lxt.mall.seckill.ReservationService reservationService;
 
     /** 商品缓存的 L1 命中统计。 */
     @GetMapping("/cache/product/stats")
@@ -125,5 +126,20 @@ public class AdminController {
     @PostMapping("/orders/{orderNo}/ship")
     public Result<Boolean> ship(@PathVariable String orderNo) {
         return Result.ok(fulfillmentService.ship(orderNo));
+    }
+
+    /**
+     * 手动开奖（抽签活动）。
+     *
+     * <p>生产上由 {@code SeckillDrawJob} 在活动开始前自动触发；
+     * 这个接口用于演示与补抽——运营在活动开始前发现中签率异常时可以手动重跑。
+     *
+     * @param ratio 中签名额 = 可售库存 × ratio，默认 1.0
+     * @return 本次中签人数
+     */
+    @PostMapping("/seckill/{activityId}/draw")
+    public Result<Integer> draw(@PathVariable Long activityId,
+                                @RequestParam(defaultValue = "1.0") double ratio) {
+        return Result.ok(reservationService.draw(activityId, ratio));
     }
 }

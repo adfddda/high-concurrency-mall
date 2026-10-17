@@ -51,6 +51,9 @@ public class SeckillActivitySnapshot implements Serializable {
 
     private Integer status;
 
+    /** 0 直接抢 / 1 预约抽签。热路径据此决定"要不要校验资格码"。 */
+    private Integer mode;
+
     /** 快照生成时间，用于判断本地缓存是否过旧。 */
     private LocalDateTime snapshotTime;
 }

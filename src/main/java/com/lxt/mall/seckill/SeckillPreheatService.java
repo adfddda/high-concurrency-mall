@@ -77,7 +77,7 @@ public class SeckillPreheatService {
                 activity.getSeckillPrice(),
                 product == null ? null : product.getPrice(),
                 activity.getTotalStock(), activity.getStartTime(), activity.getEndTime(),
-                activity.getStatus(), LocalDateTime.now(clock));
+                activity.getStatus(), activity.getMode(), LocalDateTime.now(clock));
         stockService.setActivitySnapshot(activityId, JsonUtils.toJson(snapshot), ttl);
 
         // 2. 库存

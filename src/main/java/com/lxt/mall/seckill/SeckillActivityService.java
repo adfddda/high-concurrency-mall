@@ -136,6 +136,7 @@ public class SeckillActivityService {
                 activity.getStartTime(),
                 activity.getEndTime(),
                 activity.getStatus(),
+                activity.getMode(),
                 LocalDateTime.now(clock));
     }
 

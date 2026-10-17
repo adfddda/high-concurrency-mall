@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS t_seckill_activity
     start_time      DATETIME(3)     NOT NULL COMMENT '开始时间',
     end_time        DATETIME(3)     NOT NULL COMMENT '结束时间',
     status          TINYINT         NOT NULL DEFAULT 0 COMMENT '0未开始 1进行中 2已结束',
+    mode            TINYINT         NOT NULL DEFAULT 0 COMMENT '0 直接抢 1 预约抽签',
     version         INT             NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
     create_time     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     update_time     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -78,6 +79,38 @@ CREATE TABLE IF NOT EXISTS t_seckill_activity
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_general_ci COMMENT ='秒杀活动';
+
+
+-- ============================================================================
+--  秒杀预约 / 抽签
+--
+--  为什么要有这张表：
+--   "所有人到点一起抢" 的流量是库存的几万倍，绝大多数请求注定失败，
+--   它们消耗的是入口带宽、限流器和 Redis 的 CPU。
+--   抽签把「抢购」变成两段：
+--        预约（低频、可提前）→ 抽签（后台批处理）→ 中签者凭码下单
+--   于是真正进入扣减链路的请求量 = 库存量级，而不是人群量级。
+--
+--  uk_activity_user：一个人对一个活动只能预约一次（也是抽签去重依据）
+--  uk_qualify_code：资格码全局唯一，且只发一次
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS t_seckill_reservation
+(
+    id            BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    activity_id   BIGINT UNSIGNED NOT NULL,
+    user_id       BIGINT UNSIGNED NOT NULL,
+    status        TINYINT         NOT NULL DEFAULT 0 COMMENT '0已预约 1已中签 2未中签 3资格已使用',
+    qualify_code  VARCHAR(32)              DEFAULT NULL COMMENT '资格码（中签时生成）',
+    draw_batch    INT                      DEFAULT NULL COMMENT '抽签批次号',
+    create_time   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_activity_user (activity_id, user_id),
+    UNIQUE KEY uk_qualify_code (qualify_code),
+    KEY idx_activity_status (activity_id, status)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='秒杀预约与抽签记录';
 
 
 CREATE TABLE IF NOT EXISTS t_order

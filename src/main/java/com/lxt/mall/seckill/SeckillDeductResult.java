@@ -21,7 +21,15 @@ public enum SeckillDeductResult {
     REPEAT,
 
     /** 3 —— 活动未预热 / 预热数据已过期 */
-    NOT_PREPARED;
+    NOT_PREPARED,
+
+    /**
+     * 4 —— 抽签活动：无资格码，或资格码已被使用过
+     *
+     * <p>资格码的消费（SREM）放在 Lua 里，与库存扣减同一个原子操作，
+     * 因此"同一个码用两次"在 Redis 层面就不可能发生。
+     */
+    NO_QUALIFICATION;
 
     public static SeckillDeductResult of(long code) {
         return switch ((int) code) {
@@ -29,6 +37,7 @@ public enum SeckillDeductResult {
             case 1 -> SOLD_OUT;
             case 2 -> REPEAT;
             case 3 -> NOT_PREPARED;
+            case 4 -> NO_QUALIFICATION;
             default -> throw new IllegalStateException("Lua 脚本返回了未知结果码: " + code
                     + "，请检查 seckill_deduct.lua 与 SeckillDeductResult 是否同步");
         };

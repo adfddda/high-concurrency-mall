@@ -7,6 +7,7 @@ import com.lxt.mall.order.OrderService;
 import com.lxt.mall.order.dto.OrderVO;
 import com.lxt.mall.ratelimit.RateLimit;
 import com.lxt.mall.seckill.dto.SeckillActivityVO;
+import com.lxt.mall.seckill.dto.SeckillReservationVO;
 import com.lxt.mall.seckill.dto.SeckillResponse;
 import com.lxt.mall.seckill.dto.SeckillResultVO;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class SeckillController {
     private final SeckillActivityService activityService;
     private final SeckillPreheatService preheatService;
     private final OrderService orderService;
+    private final ReservationService reservationService;
 
     /** 活动列表（公开）。 */
     @GetMapping("/activities")
@@ -54,9 +56,29 @@ public class SeckillController {
     @RateLimit(rule = "seckill",
             dimensions = {RateLimitDimension.USER, RateLimitDimension.IP},
             message = "手速太快啦，请稍后再试")
-    public Result<SeckillResponse> seckill(@PathVariable Long activityId) {
+    public Result<SeckillResponse> seckill(@PathVariable Long activityId,
+                                           @RequestParam(required = false) String qualifyCode) {
         Long userId = UserContext.requireUserId();
-        return Result.ok(seckillService.seckill(activityId, userId));
+        return Result.ok(seckillService.seckill(activityId, userId, qualifyCode));
+    }
+
+    /**
+     * 预约抽签活动的预约入口。
+     *
+     * <p>幂等：重复预约返回已有记录而不是报错——用户在活动页反复点"预约"是常态。
+     * 只有活动开始之前可以预约，开始之后返回 20010。
+     */
+    @PostMapping("/activities/{activityId}/reservation")
+    public Result<SeckillReservationVO> reserve(@PathVariable Long activityId) {
+        return Result.ok(SeckillReservationVO.from(
+                reservationService.reserve(activityId, UserContext.requireUserId())));
+    }
+
+    /** 查询我的预约/中签结果（含资格码）。 */
+    @GetMapping("/activities/{activityId}/reservation")
+    public Result<SeckillReservationVO> myReservation(@PathVariable Long activityId) {
+        return Result.ok(SeckillReservationVO.from(
+                reservationService.myReservation(activityId, UserContext.requireUserId())));
     }
 
     /**

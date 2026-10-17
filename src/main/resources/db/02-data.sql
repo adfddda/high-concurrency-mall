@@ -52,3 +52,12 @@ ON DUPLICATE KEY UPDATE activity_name = VALUES(activity_name),
                         start_time    = VALUES(start_time),
                         end_time      = VALUES(end_time),
                         status        = VALUES(status);
+
+-- 预约抽签活动：10 分钟后开始，用于演示"预约 → 抽签 → 凭码下单"。
+-- 状态置 0（未开始）：抽签只对"尚未开始"的活动开放预约。
+INSERT INTO t_seckill_activity (id, activity_name, product_id, seckill_price, total_stock, available_stock,
+                                start_time, end_time, status, mode)
+VALUES (2006, 'iPhone 17 Pro 预约抽签专场', 1002, 6499.00, 50, 50,
+        DATE_ADD(NOW(3), INTERVAL 10 MINUTE), DATE_ADD(NOW(3), INTERVAL 1 DAY), 0, 1)
+ON DUPLICATE KEY UPDATE activity_name = VALUES(activity_name),
+                        mode          = VALUES(mode);

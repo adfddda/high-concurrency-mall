@@ -60,7 +60,7 @@ public class SeckillStockService {
     @PostConstruct
     void assertSameSlot() {
         long probe = 1L;
-        List<String> keys = seckillKeys(probe);
+        List<String> keys = deductKeys(probe);
         if (!RedisClusterSlot.sameSlot(keys.toArray(new String[0]))) {
             throw new IllegalStateException(
                     "秒杀相关 key 未落在同一个哈希槽，Redis Cluster 下 Lua 会直接报 CROSSSLOT。"
@@ -70,15 +70,22 @@ public class SeckillStockService {
     }
 
     /**
-     * 原子扣减：库存校验 + 扣减 + 一人一单去重 + 在途计数，全部在一个 Lua 里完成。
+     * 原子扣减：库存校验 + 扣减 + 一人一单去重 + 资格码消费 + 在途计数，
+     * 全部在一个 Lua 里完成。
+     *
+     * @param mode        活动模式，{@link com.lxt.mall.domain.enums.SeckillMode#LOTTERY} 时校验资格码
+     * @param qualifyCode 资格码（抽签模式必填，其它模式忽略）
      */
-    public SeckillDeductResult deduct(Long activityId, Long userId) {
-        List<String> keys = seckillKeys(activityId);
+    public SeckillDeductResult deduct(Long activityId, Long userId,
+                                      com.lxt.mall.domain.enums.SeckillMode mode, String qualifyCode) {
+        List<String> keys = deductKeys(activityId);
         long start = System.nanoTime();
         Long result = redis.execute(seckillDeductScript, keys,
                 String.valueOf(userId),
                 properties.getSeckill().isInflightTracking() ? "1" : "0",
-                String.valueOf(properties.getSeckill().getBoughtSetTtl().toSeconds()));
+                String.valueOf(properties.getSeckill().getBoughtSetTtl().toSeconds()),
+                mode == com.lxt.mall.domain.enums.SeckillMode.LOTTERY ? "1" : "0",
+                qualifyCode == null ? "" : qualifyCode);
         metrics.recordSeckillLua(System.nanoTime() - start);
 
         if (result == null) {
@@ -91,6 +98,11 @@ public class SeckillStockService {
             localSoldOutCache.markSoldOut(activityId);
         }
         return deductResult;
+    }
+
+    /** 兼容重载：直接抢购模式，无资格码。 */
+    public SeckillDeductResult deduct(Long activityId, Long userId) {
+        return deduct(activityId, userId, com.lxt.mall.domain.enums.SeckillMode.DIRECT, null);
     }
 
     /**
@@ -204,11 +216,25 @@ public class SeckillStockService {
         return size == null ? 0 : size;
     }
 
-    /** 秒杀三件套的 key，顺序必须与 Lua 脚本里的 KEYS[1..3] 严格对应。 */
+    /** 秒杀三件套的 key，顺序必须与回补脚本里的 KEYS[1..3] 严格对应。 */
     private List<String> seckillKeys(Long activityId) {
         return List.of(
                 RedisKeys.seckillStock(activityId),
                 RedisKeys.seckillBought(activityId),
                 RedisKeys.seckillInflight(activityId));
+    }
+
+    /**
+     * 扣减脚本的 key 列表（多一个资格码集合）。
+     *
+     * <p>四个 key 都带同一个 {@code {act:N}} Hash Tag，因此必然同槽——
+     * 这是抽签模式和直接抢模式能共用一套扣减逻辑的前提。
+     */
+    private List<String> deductKeys(Long activityId) {
+        return List.of(
+                RedisKeys.seckillStock(activityId),
+                RedisKeys.seckillBought(activityId),
+                RedisKeys.seckillInflight(activityId),
+                RedisKeys.seckillQualifyCodes(activityId));
     }
 }

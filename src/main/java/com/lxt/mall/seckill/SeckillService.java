@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.lxt.mall.common.api.ResultCode;
 import com.lxt.mall.common.exception.BusinessException;
 import com.lxt.mall.config.MallProperties;
+import com.lxt.mall.domain.enums.SeckillMode;
 import com.lxt.mall.metrics.MallMetrics;
 import com.lxt.mall.mq.ReliableMessageSender;
 import com.lxt.mall.order.dto.OrderVO;
@@ -66,6 +67,15 @@ public class SeckillService {
     private final Clock clock;
 
     public SeckillResponse seckill(Long activityId, Long userId) {
+        return seckill(activityId, userId, null);
+    }
+
+    /**
+     * 秒杀下单。
+     *
+     * @param qualifyCode 抽签活动的资格码；直接抢购活动传 null 即可
+     */
+    public SeckillResponse seckill(Long activityId, Long userId, String qualifyCode) {
         if (userId == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED);
         }
@@ -97,7 +107,15 @@ public class SeckillService {
         String messageId = generateMessageId();
 
         // ---------- 4. Redis Lua 原子扣减 ----------
-        SeckillDeductResult deductResult = stockService.deduct(activityId, userId);
+        // 抽签活动必须在本地就先把"没带码"的请求挡掉：
+        // 这类请求注定失败，没必要占用一次 Redis 往返。
+        SeckillMode mode = SeckillMode.of(snapshot.getMode());
+        if (mode == SeckillMode.LOTTERY && (qualifyCode == null || qualifyCode.isBlank())) {
+            metrics.seckillResult("no_qualification");
+            throw new BusinessException(ResultCode.SECKILL_NO_QUALIFICATION);
+        }
+
+        SeckillDeductResult deductResult = stockService.deduct(activityId, userId, mode, qualifyCode);
         switch (deductResult) {
             case SOLD_OUT -> {
                 metrics.seckillResult("sold_out");
@@ -106,6 +124,10 @@ public class SeckillService {
             case REPEAT -> {
                 metrics.seckillResult("repeat");
                 throw new BusinessException(ResultCode.SECKILL_REPEAT);
+            }
+            case NO_QUALIFICATION -> {
+                metrics.seckillResult("no_qualification");
+                throw new BusinessException(ResultCode.SECKILL_NO_QUALIFICATION);
             }
             case NOT_PREPARED -> {
                 // 活动未预热：可能是活动刚创建、Redis 被清空、或 TTL 意外到期。

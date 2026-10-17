@@ -57,6 +57,21 @@ public final class RedisKeys {
         return "seckill:inflight:" + activityTag(activityId);
     }
 
+    /**
+     * 资格码集合，Set。抽签活动的"中签凭证"。
+     *
+     * <p>为什么资格码放 Redis 而不是只放数据库：扣减脚本需要在<b>同一个原子操作</b>里
+     * 完成"校验资格码 → 消费资格码 → 扣库存"。如果资格码校验要回查数据库，
+     * 就退化成"先查再扣"，中间会出现
+     * 「同一个码被两个并发请求同时判定有效」的窗口。
+     *
+     * <p>数据库仍然是权威（t_seckill_reservation.qualify_code），
+     * Redis 只是它的可重建投影——丢了可以重新灌。
+     */
+    public static String seckillQualifyCodes(Long activityId) {
+        return "seckill:codes:" + activityTag(activityId);
+    }
+
     /** 活动元信息快照，String(JSON)。 */
     public static String seckillActivity(Long activityId) {
         return "seckill:activity:" + activityId;

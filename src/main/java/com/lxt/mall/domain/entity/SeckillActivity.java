@@ -48,6 +48,9 @@ public class SeckillActivity implements Serializable {
 
     private Integer status;
 
+    /** 0 直接抢 / 1 预约抽签。见 {@link com.lxt.mall.domain.enums.SeckillMode}。 */
+    private Integer mode;
+
     private Integer version;
 
     @TableField(value = "create_time", insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)

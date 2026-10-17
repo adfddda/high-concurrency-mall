@@ -82,3 +82,5 @@ mall:
       enabled: false
     auto-confirm:
       enabled: false
+    seckill-draw:
+      enabled: false
