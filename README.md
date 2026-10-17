@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-88%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-91%20passed-success">
 </p>
 
 ---
@@ -23,7 +23,7 @@
 | 数据表 | **17** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **88** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **91** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -376,7 +376,6 @@ UPDATE t_order SET status = 5, ship_time = ?
 > 退款与关单本身都是幂等的（退款单唯一键 + 订单状态机），所以重试是安全的。
 
 ### 风控：限流挡"量"，风控挡"人"
-
 限流按 IP/用户限速，能挡住"一个人狂点"和"一个 IP 打爆"。
 但真实黄牛是**一台设备、100 个账号、轮流点**——每个账号都合法、每次请求都在限额内，
 限流完全拦不住，只能靠设备指纹收敛。
@@ -396,6 +395,26 @@ UPDATE t_order SET status = 5, ship_time = ?
 
 > 拦截记录落在 `t_seckill_risk_hit`，`/api/admin/seckill/{id}/risk-hits` 可按原因统计——
 > 这是风控唯一能自证"到底挡住了多少"的证据。
+
+### 库存分桶：单 key 热点的解法（可选，`SECKILL_BUCKETS`）
+
+单个活动的库存是一个天然热点 key：Redis Cluster 下它只落在一个分片上，
+**该分片的单线程能力就是整个活动的吞吐上限**，加分片也救不了。
+
+`mall.seckill.bucket-count > 1` 时把库存拆成 N 个桶，按 `floorMod(hash(userId), N)` 路由，
+每个桶用自己的 Hash Tag `{act:N:bK}`——**桶之间落在不同槽**，因此能分散到不同分片。
+
+三个必须说清楚的代价（都写在 `MallProperties.Seckill` 的注释里）：
+
+1. 同一用户永远落同一个桶（这是"一人一单"和"资格码"能在桶内原子判定的前提），
+   所以**桶间负载由哈希决定，不可控**；
+2. **不做跨桶回退**：你的桶卖完就返回售罄，即使别的桶还有货——会少卖，但绝不会超卖；
+3. **单机 Redis 上分桶没有吞吐收益**（仍然是一个线程），收益只在 Cluster 下出现。
+
+> 默认 `bucket-count=1`，行为与早期版本完全一致；`BucketedSeckillTest` 用 4 桶
+> 验证了「800 并发抢 200 件，成功数恰好 200」。这是一个**需要集群才能证明性能收益**的设计，
+> 我不打算把没跑过的数字写进 README。
+
 
 ### 抽签模式：把 10 万次抢购变成 200 次扣减
 
