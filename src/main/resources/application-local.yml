@@ -1,0 +1,16 @@
+# ============================================================================
+#  local：面向「本机已装 MySQL / Redis」的开发调试场景
+#  默认端口指向本机标准端口，由 application.yml 提供
+# ============================================================================
+spring:
+  sql:
+    init:
+      # 本地开发让应用自己建表灌数据，一键起服务
+      mode: always
+      schema-locations: classpath:db/01-schema.sql
+      data-locations: classpath:db/02-data.sql
+      continue-on-error: false
+
+logging:
+  level:
+    com.lxt.mall: DEBUG

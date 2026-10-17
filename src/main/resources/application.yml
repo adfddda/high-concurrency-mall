@@ -1,0 +1,251 @@
+server:
+  port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      max: 500
+      min-spare: 50
+    accept-count: 2000
+    max-connections: 20000
+    connection-timeout: 5s
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: high-concurrency-mall
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:mall_trade}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&useAffectedRows=true
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:123456}
+    hikari:
+      # 连接池不是越大越好：50 已经足够打满单实例 MySQL 的写能力，
+      # 继续加大只会把压力转成 MySQL 侧的锁等待与上下文切换。
+      maximum-pool-size: ${DB_POOL_SIZE:50}
+      minimum-idle: 10
+      connection-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1740000
+      pool-name: MallHikariPool
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: 2s
+      connect-timeout: 2s
+      lettuce:
+        shutdown-timeout: 200ms
+        pool:
+          enabled: true
+          max-active: 64
+          max-idle: 32
+          min-idle: 8
+          max-wait: 1000ms
+
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:mall}
+    password: ${RABBIT_PASSWORD:mall123456}
+    virtual-host: ${RABBIT_VHOST:/}
+    connection-timeout: 5s
+    requested-heartbeat: 30s
+    # correlated：Confirm 回调能拿到发送时携带的 CorrelationData，
+    # 从而把「哪条业务消息没被 broker 确认」精确定位出来。
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+      retry:
+        enabled: false      # 可靠性由业务侧本地台账 + Confirm 兜底，不用模板重试
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 50
+        concurrency: 4
+        max-concurrency: 16
+        default-requeue-rejected: false
+        missing-queues-fatal: false
+        retry:
+          enabled: false    # 重试策略由消费端自己控制（延迟重试队列），不用容器重试
+
+  sql:
+    init:
+      mode: never           # 建表脚本默认不自动执行，见 application-local.yml
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false          # 关闭 MP 二级缓存，缓存统一由 Caffeine+Redis 管理
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_id          # 雪花 ID
+      # 本项目的"删除"都是状态位（订单取消、活动结束），没有物理删除语义，
+      # 因此刻意不启用 MP 的逻辑删除，避免 WHERE 里被静默注入条件。
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.lxt.mall.domain.entity
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,threaddump,heapdump
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        mall.seckill.lua: true
+
+logging:
+  level:
+    root: INFO
+    com.lxt.mall: ${LOG_LEVEL:INFO}
+    org.springframework.amqp: WARN
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+
+# ============================================================================
+#  业务自定义配置（绑定到 com.lxt.mall.config.MallProperties）
+# ============================================================================
+mall:
+  jwt:
+    issuer: high-concurrency-mall
+    # 生产必须通过 JWT_SECRET 注入；默认值仅供本地跑通
+    secret: ${JWT_SECRET:mall-dev-secret-key-please-override-in-production-0123456789}
+    access-token-ttl: 2h
+    clock-skew: 30s
+
+  auth:
+    # 主动退出 = 把 jti 写进 Redis 黑名单，TTL 取 token 剩余有效期，
+    # 到期自动清理，黑名单不会无限膨胀。
+    blacklist-enabled: true
+    blacklist-key-prefix: "auth:token:blacklist:"
+
+  rate-limit:
+    enabled: true
+    # 限流组件自身故障时【放行】而不是拒绝：
+    # 限流是保护措施，不能因为保护措施挂了就把正常业务全拒绝掉。
+    fail-open: true
+    rules:
+      seckill:
+        window: 1s
+        limit: 5
+        algorithm: SLIDING_WINDOW
+      product-detail:
+        window: 1s
+        limit: 50
+        algorithm: SLIDING_WINDOW
+      login:
+        window: 60s
+        limit: 10
+        algorithm: TOKEN_BUCKET
+        capacity: 10
+        rate: 0.5
+
+  seckill:
+    # 活动元信息在 JVM 内的短 TTL 缓存，避免每次抢购都读 Redis
+    activity-local-ttl: 5s
+    activity-local-max-size: 1000
+    # 预热时给「已购用户集合」设置的 TTL，必须覆盖整个活动生命周期
+    bought-set-ttl: 24h
+    # 订单支付超时时间
+    order-expire: ${SECKILL_ORDER_EXPIRE:30s}
+    # 本地售罄标记：命中即直接拒绝，不必访问 Redis。
+    # 它只是「快速否定」优化，多实例之间不保证实时同步，最终仍以 Redis 为准。
+    local-soldout-max-size: 10000
+    local-soldout-ttl: 10s
+    # 在途计数：Redis 已扣减但订单尚未落库的请求数，对账时的关键修正项
+    inflight-tracking: true
+
+  cache:
+    product:
+      # L1 本地缓存 TTL 刻意做得很短：多实例部署下本地缓存无法被其他节点失效，
+      # TTL 就是「不一致窗口」的上界。
+      l1-ttl: 3s
+      l1-max-size: 10000
+      # L2 Redis 逻辑过期时间（数据仍然可读，只是标记为陈旧，触发异步重建）
+      l2-logical-expire: 3m
+      # 物理 TTL 必须显著大于逻辑过期时间，否则逻辑过期还没到，key 就被删了
+      l2-physical-ttl: 30m
+      # 雪崩防护：在 l2-physical-ttl 上叠加 ±20% 随机抖动
+      l2-ttl-jitter-ratio: 0.2
+      # 空值缓存 TTL，专治缓存穿透
+      null-value-ttl: 60s
+      # 重建互斥锁
+      rebuild-lock-wait: 200ms
+      rebuild-lock-lease: 10s
+      # 异步重建线程池
+      rebuild-pool-size: 4
+      rebuild-queue-capacity: 2048
+    # 更新 DB 后延迟二次删除缓存的时间，用于兜底「读请求回填旧值」的竞态
+    double-delete-delay: 500ms
+    # 布隆过滤器：拦截一定不存在的商品 ID
+    bloom-enabled: true
+    bloom-expected-insertions: 100000
+    bloom-fpp: 0.01
+
+  mq:
+    seckill-exchange: mall.seckill.exchange
+    seckill-queue: mall.seckill.order.queue
+    seckill-routing-key: seckill.order
+    seckill-retry-queue: mall.seckill.order.retry.queue
+    seckill-retry-routing-key: seckill.order.retry
+    dlx-exchange: mall.dlx.exchange
+    seckill-dlq: mall.seckill.order.dlq
+    seckill-dlq-routing-key: seckill.order.dlq
+
+    order-delay-exchange: mall.order.delay.exchange
+    order-delay-queue: mall.order.delay.queue
+    order-delay-routing-key: order.delay
+    order-close-exchange: mall.order.close.exchange
+    order-close-queue: mall.order.close.queue
+    order-close-routing-key: order.close
+
+    # 消费者失败后的重试次数与延迟重试间隔
+    max-retry: 3
+    retry-delay: 5s
+    # Confirm 超时未收到 broker 确认时，判定投递失败并补偿的回溯窗口
+    confirm-timeout: 5s
+
+  reconcile:
+    enabled: ${RECONCILE_ENABLED:true}
+    # 每 5 分钟对账一次：Redis 剩余库存 vs (DB 剩余库存 - 在途)
+    cron: "0 */5 * * * ?"
+    # 允许的漂移容忍度，抖动窗口内不修
+    drift-tolerance: 0
+    # 发现漂移时是否自动修复（面试演示建议开，生产建议先只告警）
+    auto-repair: true
+
+  # Redisson 只做分布式锁 / 布隆过滤器，数据读写一律走 StringRedisTemplate，
+  # 因此它的连接参数与 spring.data.redis 分开配置，互不影响。
+  redisson:
+    mode: single            # single | cluster
+    cluster-nodes: []       # mode=cluster 时填 redis://ip:port,... 列表
+    pool-size: 64
+    minimum-idle-size: 8
+
+  # 演示数据初始化。生产必须置为 false（见 application-docker.yml 的覆盖）。
+  demo:
+    seed-enabled: ${DEMO_SEED:true}
+    user-count: ${DEMO_USER_COUNT:200}
+    username-prefix: malluser
+    nickname-prefix: 演示用户
+    password: "123456"

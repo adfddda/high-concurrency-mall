@@ -1,0 +1,47 @@
+# ============================================================================
+#  benchmark：容量压测专用
+#
+#  为什么需要单独一个 profile：
+#   秒杀接口同时按【用户】和【IP】两个维度限流。单机压测时所有请求来自
+#   同一个 IP，IP 维度会先于用户维度触发——如果不关掉限流，
+#   你测出来的是限流器的能力，而不是系统的处理能力。
+#
+#  启动：
+#   java -jar target/high-concurrency-mall.jar --spring.profiles.active=benchmark
+#
+#  注意：这个 profile 只用于压测，绝不能用于生产。
+# ============================================================================
+spring:
+  sql:
+    init:
+      # 压测不要反复重建数据，库表应当已经就绪
+      mode: never
+
+mall:
+  rate-limit:
+    enabled: false
+
+  demo:
+    seed-enabled: true
+    # 一人一单要求每个请求用不同用户，这里多造一些
+    user-count: ${DEMO_USER_COUNT:1000}
+    username-prefix: malluser
+    nickname-prefix: 压测用户
+    password: "123456"
+
+  seckill:
+    # 压测时把订单超时放长一点，避免大量订单在压测过程中被自动关单，
+    # 干扰"库存对账"的观察
+    order-expire: 10m
+    inflight-tracking: true
+
+  reconcile:
+    # 压测期间不要自动修复，否则会把我们要观察的漂移直接抹掉
+    enabled: true
+    auto-repair: false
+
+logging:
+  level:
+    root: WARN
+    com.lxt.mall: WARN
+    org.springframework.amqp: ERROR

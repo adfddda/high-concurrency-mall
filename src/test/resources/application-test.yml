@@ -1,0 +1,80 @@
+# ============================================================================
+#  集成测试配置
+#  · 独立的测试库 mall_trade_test，绝不碰业务库
+#  · 关闭 MQ 监听器自动启动：没有 broker 时上下文仍能正常加载，
+#    需要 broker 的用例单独用 @Tag("mq") 分组，按需开启
+#  · 关闭所有定时任务：否则对账/兜底扫描会干扰测试断言
+# ============================================================================
+spring:
+  datasource:
+    url: jdbc:mysql://${TEST_DB_HOST:localhost}:${TEST_DB_PORT:3306}/${TEST_DB_NAME:mall_trade_test}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&useAffectedRows=true
+    username: ${TEST_DB_USER:root}
+    password: ${TEST_DB_PASSWORD:123456}
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+
+  data:
+    redis:
+      host: ${TEST_REDIS_HOST:localhost}
+      port: ${TEST_REDIS_PORT:6379}
+      database: 15          # 用 15 号库做测试，和业务库（0 号）隔离，flushdb 时不会误伤
+
+  rabbitmq:
+    host: ${TEST_RABBIT_HOST:localhost}
+    port: ${TEST_RABBIT_PORT:5672}
+    listener:
+      simple:
+        auto-startup: false
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/01-schema.sql
+      data-locations: classpath:db/02-data.sql
+      continue-on-error: false
+
+logging:
+  level:
+    root: WARN
+    com.lxt.mall: INFO
+    org.springframework.test: WARN
+
+mall:
+  jwt:
+    secret: test-secret-key-for-integration-test-only-0123456789abcdef
+    access-token-ttl: 5m
+  seckill:
+    order-expire: 3s
+    activity-local-ttl: 1s
+    local-soldout-ttl: 1s
+  cache:
+    product:
+      l1-ttl: 1s
+      l2-logical-expire: 1s
+      l2-physical-ttl: 5m
+      null-value-ttl: 5s
+      rebuild-lock-wait: 200ms
+    double-delete-delay: 200ms
+  mq:
+    confirm-timeout: 2s
+    max-retry: 2
+    retry-delay: 1s
+  demo:
+    seed-enabled: true
+    user-count: 50
+    username-prefix: testuser
+    nickname-prefix: 测试用户
+    password: "123456"
+  reconcile:
+    enabled: false
+  rate-limit:
+    enabled: true
+    fail-open: true
+  job:
+    preheat:
+      enabled: false
+    pending-confirm:
+      enabled: false
+    order-timeout-fallback:
+      enabled: false
