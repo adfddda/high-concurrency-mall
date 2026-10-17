@@ -564,6 +564,7 @@ mvn test
 | **[05-踩坑记录](docs/05-pitfalls.md)** | **13 个真实踩到的坑**，含定位过程与反思 | **面试最能加分的一份** |
 | **[06-简历描述](docs/06-resume.md)** | STAR 结构的项目描述 + 可能的追问方向 | 写简历 |
 | **[12-加固记录](docs/12-hardening.md)** | **9 个"测试全绿但逻辑确实错了"的缺陷**：怎么发现、为什么危险、怎么修 | **最能体现工程严谨性的一份** |
+| **[13-扩容与演进](docs/13-scaling-and-evolution.md)** | 分库分表（分片键怎么选、唯一约束怎么保住、四步不停机迁移）与 Canal 同步的**可执行设计**；明确标注"设计完成、未实现" | 被问"怎么扩容"时看 |
 
 ---
 
@@ -640,10 +641,11 @@ src/main/resources/
 
 | 现状 | 生产级演进方向 |
 |---|---|
-| 单机 Redis | Redis Cluster（Hash Tag 已就绪）+ 多级缓存扩容 |
-| 缓存失效靠应用层 | 接 **Canal 订阅 binlog**，覆盖"有人直接改库"的场景 |
+| 单机 Redis | Redis Cluster（Hash Tag 已就绪）+ **库存分桶已实现**（`SECKILL_BUCKETS`，默认 1） |
+| 缓存失效靠应用层 | 接 **Canal 订阅 binlog**，覆盖"有人直接改库"与多实例 L1 → **方案见 [13-扩容与演进](docs/13-scaling-and-evolution.md)，未实现**（需要 Canal Server + binlog 权限，CI 无法验证） |
+| 多实例 L1 不一致 | 用 Redis Pub/Sub 广播失效，或交给 Canal；当前靠 3 秒 TTL 收敛 |
 | 秒杀消息台账在内存 | 对可靠性要求更高的场景换成 **本地消息表（Outbox）** |
-| 无分库分表 | 订单按 `user_id` 分片（雪花 ID 已保证全局唯一） |
+| 无分库分表 | 订单按 `user_id` 分片 → **分片键选择、唯一约束核对、四步迁移方案见 [13-扩容与演进](docs/13-scaling-and-evolution.md)，未实现**（会穿透现有 96 个测试的核心假设） |
 | 链路追踪只到进程级 | 已接入 OpenTelemetry + Jaeger；下一步是把 MQ 消费纳入统一 sampling 策略 |
 | 无服务注册发现 | 网关已独立部署（[gateway/](gateway/)）；下一步接 Nacos 做服务发现与配置中心 |
 | 库存对账每 5 分钟一次 | 提升为事件驱动 + 实时告警 |
