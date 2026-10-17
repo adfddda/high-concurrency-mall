@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-81%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-82%20passed-success">
 </p>
 
 ---
@@ -23,7 +23,7 @@
 | 数据表 | **15** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **7,098** 行 Java（主代码 + 测试）+ **6,927** 行设计文档 |
-| 自动化测试 | **81** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **82** 个用例（业务）+ **1**（网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -377,6 +377,14 @@ end
 | POST | `/{orderNo}/confirm` | ✓（校验归属） | 确认收货（`SHIPPED → FINISHED`） |
 | POST | `/{orderNo}/cancel` | ✓ | 主动取消并回补库存 |
 
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| GET | `/v3/api-docs` | ✗ | OpenAPI 3 规范（JSON） |
+| GET | `/swagger-ui.html` | ✗ | Swagger UI，右上角 Authorize 填 token 即可调试 |
+
+> 生产环境应整体关闭这两个端点（`springdoc.api-docs.enabled=false`），
+> 而不是只靠拦截器——接口文档会把系统内部结构完整暴露出去。
+
 ### 运维可观测 `/api/admin`
 
 > ⚠️ 需要**管理员身份**（`mall.admin.usernames` 白名单，默认 `lxt`）。
@@ -494,12 +502,16 @@ mvn test
 | 编排 | Docker Compose | 一键起全套 + 多阶段构建镜像 |
 | 网关 | **Spring Cloud Gateway 4.3** | 统一入口 + 限流下沉（Redis 计数，多副本共享配额） |
 | 搜索 | **Elasticsearch 8** | 商品搜索；ES 不可用时自动降级为数据库查询 |
+| 接口文档 | **springdoc / OpenAPI 3** | `/swagger-ui.html`，内置 JWT bearer，可直接调试 |
+| 部署 | **Kubernetes** | `deploy/k8s/`：探针、滚动更新、HPA（清单未在真实集群验证） |
 
 ---
 
 ## 工程结构速览
 
 ```
+gateway/                独立部署的 API 网关（自己的 pom，与业务服务解耦）
+deploy/k8s/             Kubernetes 清单（Deployment / Service / HPA）
 src/main/java/com/lxt/mall/
 ├── auth/          JWT 签发解析、Redis 黑名单、登录拦截器
 ├── ratelimit/     @RateLimit 注解 + AOP 切面 + 滑动窗口/令牌桶 Lua
