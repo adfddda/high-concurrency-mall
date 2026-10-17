@@ -1,0 +1,43 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: mall-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 10s
+
+mall:
+  # 业务服务地址。容器编排里注入 http://app:8080
+  upstream: ${MALL_UPSTREAM:http://localhost:8080}
+  gateway:
+    rate-limit:
+      # 每 IP 每窗口的请求上限。网关层只做粗粒度保护，
+      # 用户维度/接口维度的精确限流仍在业务服务里（mall.rate-limit.rules）
+      limit: ${GATEWAY_RATE_LIMIT:200}
+      window: ${GATEWAY_RATE_WINDOW:1s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.lxt.gateway: ${LOG_LEVEL:INFO}
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

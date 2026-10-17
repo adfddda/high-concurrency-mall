@@ -102,6 +102,28 @@ sequenceDiagram
 
 ---
 
+## 接入层：为什么要有网关
+
+```text
+客户端 ──► 网关 :8081 ──► 业务服务 :8080
+             │
+             ├─ 每 IP / 每窗口限流（Redis 计数，多副本共享配额）
+             ├─ 透传/生成 X-Request-Id
+             └─ 业务服务不再直接对公网开放
+```
+
+**两层限流的分工**（不是二选一）：
+
+| 层 | 粒度 | 算法 | 目的 | 代价 |
+|---|---|---|---|---|
+| 网关 | IP + 路径前缀 | 固定窗口（`INCR` + `PEXPIRE`） | 挡住脚本与爬虫，在进入业务进程之前 | 边界突刺，可能放过 2 倍流量 |
+| 业务服务 | 用户 / 接口 | 滑动窗口 / 令牌桶（Lua） | 精确业务配额，与库存逻辑同进程 | 一次 Redis 往返，占用业务线程 |
+
+> 网关用固定窗口是**刻意**的：它的定位是粗粒度保护，成本必须极低。
+> 真正的精确限流留在业务侧——**不要用同一个精度的方案去解决两个层次的问题**。
+
+---
+
 ## 快速开始
 
 ### 前置要求
@@ -133,6 +155,7 @@ docker compose --profile full up -d --build
 | Redis | 6380 | 6379 | 无密码 |
 | RabbitMQ | 5672 / **15672**(控制台) | 同 | mall / mall123456 |
 | 应用 | 8080 | 8080 | — |
+| 网关 | **8081** | 8080 | 对外入口（full profile） |
 
 ```bash
 java -jar target/high-concurrency-mall.jar --spring.profiles.active=docker
@@ -374,6 +397,7 @@ mvn test
 | 监控 | Micrometer + Prometheus | 业务埋点（缓存命中率、Lua 耗时、MQ 事件） |
 | 链路追踪 | **OpenTelemetry + Jaeger** | `traceId` 贯穿 HTTP → MQ → 消费端，日志已带 `%X{traceId}` |
 | 编排 | Docker Compose | 一键起全套 + 多阶段构建镜像 |
+| 网关 | **Spring Cloud Gateway 4.3** | 统一入口 + 限流下沉（Redis 计数，多副本共享配额） |
 
 ---
 
@@ -430,6 +454,6 @@ src/main/resources/
 | 秒杀消息台账在内存 | 对可靠性要求更高的场景换成 **本地消息表（Outbox）** |
 | 无分库分表 | 订单按 `user_id` 分片（雪花 ID 已保证全局唯一） |
 | 链路追踪只到进程级 | 已接入 OpenTelemetry + Jaeger；下一步是把 MQ 消费纳入统一 sampling 策略 |
-| 无服务注册发现 | Nacos + Gateway + Sentinel（限流可下沉到网关层） |
+| 无服务注册发现 | 网关已独立部署（[gateway/](gateway/)）；下一步接 Nacos 做服务发现与配置中心 |
 | 库存对账每 5 分钟一次 | 提升为事件驱动 + 实时告警 |
 | 未做全链路压测 | 用 JMeter/Gatling 做分布式压测，排除压测机瓶颈 |

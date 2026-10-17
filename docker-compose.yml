@@ -127,6 +127,31 @@ services:
     ports:
       - "8080:8080"
 
+  # --------------------------------------------------------------------------
+  #  API 网关（独立部署单元）
+  #  对外只暴露 8081，业务服务不再直接对公网开放。
+  #  限流下沉到这里：每 IP 每窗口 N 次，计数在 Redis 里，多副本共享配额。
+  # --------------------------------------------------------------------------
+  gateway:
+    profiles: ["full"]
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: mall-gateway
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      MALL_UPSTREAM: http://app:8080
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      GATEWAY_RATE_LIMIT: "200"
+    ports:
+      - "8081:8080"
+
 volumes:
   mysql-data:
   redis-data:

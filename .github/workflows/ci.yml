@@ -119,3 +119,28 @@ jobs:
       - name: Verify image is runnable
         run: |
           docker run --rm --entrypoint sh high-concurrency-mall:ci -c 'test -f /app/app.jar && echo "jar ok"'
+
+  gateway:
+    name: Gateway Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # 网关是独立部署单元，有自己的 pom，因此单独构建。
+      # 这条 job 同时也是一道"版本兼容性"的守门人：
+      # Spring Cloud 与 Spring Boot 的版本矩阵一旦不匹配，这里会立刻红。
+      - name: Build & test gateway
+        run: mvn -B -ntp -f gateway/pom.xml verify
+
+      - name: Docker build gateway image
+        run: docker build -t mall-gateway:ci ./gateway

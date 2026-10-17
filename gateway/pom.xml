@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      网关是【独立部署单元】，因此它有自己的 pom，不作为业务服务的子模块。
+
+      为什么不用多模块工程：
+       1. 网关与技术栈解耦——它只需要 WebFlux + Redis，不应该被拖去编译
+          业务服务的 MyBatis / RabbitMQ / 秒杀代码；
+       2. 独立构建意味着独立发布节奏：改业务代码不必重新构建网关镜像；
+       3. 演示项目的根 pom 不需要为了"看起来像微服务"而重构目录结构——
+          那是形式主义。
+
+      版本：Spring Boot 3.5.16 + Spring Cloud 2025.0.3（2025.0.x 对应 Boot 3.5.x）。
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.16</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.lxt</groupId>
+    <artifactId>mall-gateway</artifactId>
+    <version>1.0.0</version>
+    <name>mall-gateway</name>
+    <description>API 网关：统一入口 / 限流下沉 / 请求标识</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <spring-cloud.version>2025.0.3</spring-cloud.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Gateway 4.3 起，服务端 WebFlux 的 starter 改名为此 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
+        </dependency>
+        <!-- 限流计数放 Redis：网关多副本时共享同一份配额 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>mall-gateway</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
