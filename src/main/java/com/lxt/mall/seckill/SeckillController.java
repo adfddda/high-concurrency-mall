@@ -62,11 +62,27 @@ public class SeckillController {
     /**
      * 查询抢购结果（前端轮询）。
      *
-     * <p>结果查不到时会回落到数据库，所以 Redis 结果缓存丢失不会导致查不到订单。
+     * <p>读取顺序：<b>Redis 订单快照 → MySQL</b>。
+     * 快照命中时完全不碰数据库——秒杀结束后的轮询流量是典型的
+     * "少量数据、极高频率"，让它打到数据库是最不划算的做法。
+     *
+     * <p>限流维度只取 USER：轮询本身是正常行为，按 IP 限流会误伤
+     * NAT 出口后的整栋楼；按用户限流才对应"这个人在刷结果"。
      */
     @GetMapping("/result/{orderNo}")
+    @RateLimit(rule = "seckill-result",
+            dimensions = {RateLimitDimension.USER},
+            message = "轮询太频繁了，请稍后再试")
     public Result<OrderVO> result(@PathVariable String orderNo) {
         Long userId = UserContext.requireUserId();
+
+        // 1. 缓存直读（订单已落库的常见路径）
+        OrderVO cached = seckillService.queryCachedOrder(orderNo, userId);
+        if (cached != null) {
+            return Result.ok(cached);
+        }
+
+        // 2. 回落数据库（快照过期 / 缓存被清 / 订单还没落库）
         try {
             return Result.ok(orderService.queryVO(orderNo, userId));
         } catch (com.lxt.mall.common.exception.BusinessException e) {

@@ -59,7 +59,7 @@ public class SeckillReconcileService {
 
     private final SeckillActivityMapper activityMapper;
     private final SeckillStockService stockService;
-    private final SeckillPreheatService preheatService;
+    private final SeckillActivityService activityService;
     private final MallProperties properties;
     private final MallMetrics metrics;
     private final Clock clock;
@@ -119,9 +119,15 @@ public class SeckillReconcileService {
         int expected = dbAvailable - inflight;
         int drift = redisStock - expected;
 
-        boolean consistent = drift == 0;
+        // 容忍度：活动进行中时，Redis 与 DB 之间本来就可能有一两个请求的抖动
+        // （例如某次扣减刚提交、在途计数还没归零）。零容忍会让对账把正常抖动
+        // 误判成故障，进而触发一次本不该发生的"自动修复"。
+        int tolerance = Math.abs(properties.getReconcile().getDriftTolerance());
+        boolean consistent = Math.abs(drift) <= tolerance;
         boolean repaired = false;
-        String note = consistent ? "一致" : "检测到漂移";
+        String note = consistent
+                ? (drift == 0 ? "一致" : "在容忍范围内（drift=" + drift + "，tolerance=" + tolerance + "）")
+                : "检测到漂移";
 
         if (consistent) {
             staleInflightCounter.remove(activityId);
@@ -173,9 +179,14 @@ public class SeckillReconcileService {
             }
             stockService.resetInflight(activityId);
             stockService.resetStock(activityId, Math.max(targetStock, 0), ttl);
-            // 库存被改写后，本地的"售罄"标记必须清掉，否则会继续错误地拒绝请求
-            preheatService.preheat(activityId);
-            log.warn("【库存对账】{} activityId={} 目标库存={}", reason, activityId, targetStock);
+            // 库存被改写后，本地的"售罄"标记必须清掉，否则会继续错误地拒绝请求。
+            // 但这里【绝不能】调用 preheat()：预热写的是 DB 的 available_stock，
+            // 而 targetStock = DB 库存 - 在途数（存在合法在途时会小于 DB 库存）。
+            // 一旦预热，刚算好的预留量会被 DB 值覆盖，等于把还没落库的库存在
+            // 秒杀入口重新放出去 —— 这正是"对账修了等于没修"的那个 bug。
+            activityService.evictLocal(activityId);
+            log.warn("【库存对账】{} activityId={} 目标库存={}（已清本地快照，不回写 DB 值）",
+                    reason, activityId, targetStock);
         } catch (Exception e) {
             log.error("对账修复失败 activityId={} targetStock={}", activityId, targetStock, e);
         }

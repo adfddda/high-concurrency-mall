@@ -15,6 +15,14 @@ server:
 spring:
   application:
     name: high-concurrency-mall
+  # Java 21 虚拟线程：秒杀链路的请求几乎全是"等 Redis / 等 MQ"的 IO 等待，
+  # 平台线程池（Tomcat 默认 max=200）在这种场景下很快被占满，而 CPU 其实是闲的。
+  # 虚拟线程让"阻塞等待"变得几乎免费，同样的硬件能挂住更多并发连接。
+  # 注意：它不解决数据库连接池不够用的问题（Hikari 仍然是 50 个真实连接），
+  # 只消除线程本身的成本——所以压测时要同时盯 Hikari 的 pending 指标。
+  threads:
+    virtual:
+      enabled: ${VIRTUAL_THREADS:true}
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
   jackson:
@@ -153,6 +161,13 @@ mall:
         window: 1s
         limit: 50
         algorithm: SLIDING_WINDOW
+      # 抢购结果轮询：按用户限流，不按 IP。
+      # 轮询是正常行为，按 IP 会误伤 NAT 出口后的整栋楼；按用户才对应"这个人在刷"。
+      # 阈值放到 10/s：正常前端 300ms 轮询才 3/s，留足余量不误伤，又能挡住脚本轰炸。
+      seckill-result:
+        window: 1s
+        limit: 10
+        algorithm: SLIDING_WINDOW
       login:
         window: 60s
         limit: 10
@@ -233,6 +248,11 @@ mall:
     drift-tolerance: 0
     # 发现漂移时是否自动修复（面试演示建议开，生产建议先只告警）
     auto-repair: true
+
+  # 运维接口（/api/admin/**）的访问白名单。
+  # 生产环境必须覆盖：ADMIN_USERNAMES=ops1,ops2，并接入统一权限中心。
+  admin:
+    usernames: ${ADMIN_USERNAMES:lxt}
 
   # Redisson 只做分布式锁 / 布隆过滤器，数据读写一律走 StringRedisTemplate，
   # 因此它的连接参数与 spring.data.redis 分开配置，互不影响。

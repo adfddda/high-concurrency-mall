@@ -150,8 +150,8 @@ class OrderTimeoutTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("重复支付回调：第二次必须失败，避免重复发货")
-    void duplicatePayCallbackIsRejected() {
+    @DisplayName("重复支付回调：幂等返回成功，不会重复发货")
+    void duplicatePayCallbackIsIdempotent() {
         long userId = 700_004L;
         prepareActivity(ACTIVITY_ID, 5);
         preheatService.preheat(ACTIVITY_ID);
@@ -159,6 +159,28 @@ class OrderTimeoutTest extends BaseIntegrationTest {
         SeckillOrderMessage message = createOrder(userId);
 
         assertThat(orderService.pay(message.getOrderNo())).isTrue();
+
+        // 支付网关对非 2xx 会持续重试（有的重试 24 小时）。
+        // 这里必须幂等返回成功，否则用户侧会出现"钱扣了、订单还是待支付"。
+        // 这正是"接口幂等"和"状态机互斥"的分界线：
+        // 同向重复（已支付再支付）应当成功；反向冲突（已取消再支付）应当失败。
+        assertThat(orderService.pay(message.getOrderNo()))
+                .as("重复支付回调必须幂等成功")
+                .isTrue();
+
+        Order order = orderService.findByOrderNo(message.getOrderNo());
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+    }
+
+    @Test
+    @DisplayName("已取消订单不能支付：反向状态冲突必须拒绝")
+    void canceledOrderCannotBePaid() {
+        long userId = 700_007L;
+        prepareActivity(ACTIVITY_ID, 5);
+        preheatService.preheat(ACTIVITY_ID);
+
+        SeckillOrderMessage message = createOrder(userId);
+        orderService.cancelIfUnpaid(message.getOrderNo(), "用户取消");
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> orderService.pay(message.getOrderNo()))

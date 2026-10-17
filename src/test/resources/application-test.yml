@@ -78,3 +78,5 @@ mall:
       enabled: false
     order-timeout-fallback:
       enabled: false
+    activity-status:
+      enabled: false

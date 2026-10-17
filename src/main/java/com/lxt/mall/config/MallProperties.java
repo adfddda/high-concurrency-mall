@@ -32,6 +32,7 @@ public class MallProperties {
     private Reconcile reconcile = new Reconcile();
     private Redisson redisson = new Redisson();
     private Demo demo = new Demo();
+    private Admin admin = new Admin();
 
     // ========================================================================
 
@@ -158,6 +159,24 @@ public class MallProperties {
          * 自动修复会把错误数据放大成事故。
          */
         private boolean autoRepair = true;
+    }
+
+    /**
+     * 运维接口的访问控制。
+     *
+     * <p>原实现里 {@code /api/admin/**} 只校验了"是否登录"，没有校验"是不是管理员"——
+     * 任何一个注册用户都能调用 {@code /api/admin/seckill/reconcile} 触发对账修复，
+     * 或者调用预热接口改写 Redis 库存。这是一个真实的越权漏洞。
+     *
+     * <p>演示项目用「配置白名单」而不是完整的 RBAC：
+     * 引入 t_role / t_permission 三张表，对一个没有任何运营后台的项目是过度设计。
+     * 真实系统应该走统一权限中心（角色 → 权限点 → 接口），并且管理员身份
+     * 不能只体现在用户名上，还要有独立的认证策略（如 U2F / 内网限制）。
+     */
+    @Data
+    public static class Admin {
+        /** 允许访问 /api/admin/** 的用户名。生产环境务必通过配置覆盖。 */
+        private List<String> usernames = new ArrayList<>(List.of("lxt"));
     }
 
     @Data

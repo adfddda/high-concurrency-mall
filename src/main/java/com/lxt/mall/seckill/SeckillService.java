@@ -6,6 +6,8 @@ import com.lxt.mall.common.exception.BusinessException;
 import com.lxt.mall.config.MallProperties;
 import com.lxt.mall.metrics.MallMetrics;
 import com.lxt.mall.mq.ReliableMessageSender;
+import com.lxt.mall.order.dto.OrderVO;
+import com.lxt.mall.seckill.dto.CachedOrder;
 import com.lxt.mall.seckill.dto.SeckillResponse;
 import com.lxt.mall.seckill.dto.SeckillResultVO;
 import com.lxt.mall.seckill.message.SeckillOrderMessage;
@@ -145,6 +147,26 @@ public class SeckillService {
 
         metrics.seckillResult("accepted");
         return SeckillResponse.accepted(orderNo);
+    }
+
+    /**
+     * 轮询结果时的缓存直读路径。
+     *
+     * <p>订单落库后会把订单快照写进 Redis，轮询接口优先读它，
+     * 这样"一个用户每分钟轮询几十次"的流量完全不落到数据库上。
+     *
+     * @return null 表示缓存里没有（还没落库，或快照已过期），调用方应回落到数据库
+     */
+    public OrderVO queryCachedOrder(String orderNo, Long userId) {
+        CachedOrder cached = resultService.getCachedOrder(orderNo);
+        if (cached == null) {
+            return null;
+        }
+        // 越权校验必须在缓存层就做：否则给别人的订单号也能读到快照
+        if (userId != null && !userId.equals(cached.userId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权查看该订单");
+        }
+        return cached.order();
     }
 
     /**

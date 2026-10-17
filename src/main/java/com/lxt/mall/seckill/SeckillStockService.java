@@ -77,7 +77,8 @@ public class SeckillStockService {
         long start = System.nanoTime();
         Long result = redis.execute(seckillDeductScript, keys,
                 String.valueOf(userId),
-                properties.getSeckill().isInflightTracking() ? "1" : "0");
+                properties.getSeckill().isInflightTracking() ? "1" : "0",
+                String.valueOf(properties.getSeckill().getBoughtSetTtl().toSeconds()));
         metrics.recordSeckillLua(System.nanoTime() - start);
 
         if (result == null) {

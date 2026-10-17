@@ -141,7 +141,14 @@ public class OrderService {
         }
         int rows = orderMapper.markPaid(orderNo, LocalDateTime.now(clock));
         if (rows == 0) {
-            // 重复回调，或者回调晚于超时关单
+            // 已经是"已支付"：这是支付网关的重复回调，必须幂等返回成功。
+            // 真实网关对非 2xx 会持续重试（有的一直重试 24 小时），如果这里抛错，
+            // 用户侧会出现"钱扣了、订单状态却没变"的最坏体验。
+            // 只有"已取消/已完成"才是真正不能再支付的状态。
+            if (order.getStatus() == com.lxt.mall.domain.enums.OrderStatus.PAID) {
+                log.info("支付重复回调，幂等返回成功 orderNo={}", orderNo);
+                return true;
+            }
             throw new BusinessException(ResultCode.ORDER_STATUS_CONFLICT,
                     "订单当前状态为[" + order.getStatus().getDesc() + "]，无法支付");
         }

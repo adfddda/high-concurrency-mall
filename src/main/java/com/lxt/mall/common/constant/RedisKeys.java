@@ -67,6 +67,21 @@ public final class RedisKeys {
         return "seckill:result:" + orderNo;
     }
 
+    /**
+     * 抢购结果的订单快照，String(JSON)。
+     *
+     * <p>为什么除了结果状态还要单独存一份订单快照：
+     * 前端轮询 {@code /api/seckill/result/{orderNo}} 时，如果每次都去数据库
+     * 查一次订单，一个正在等结果的用户每分钟能产生几十次 DB 读——刚刚扛住
+     * 写洪峰的数据库，会被自己的轮询流量再打一遍。
+     *
+     * <p>把订单快照写进 Redis 并给一个短 TTL（5 分钟），足够覆盖"抢到→看到结果"
+     * 这个窗口；超过窗口后回落到数据库，所以缓存丢失不会导致查不到订单。
+     */
+    public static String seckillOrder(String orderNo) {
+        return "seckill:order:" + orderNo;
+    }
+
     /** 已预热的活动 ID 集合，Set。用于启动时判断是否需要重新预热。 */
     public static final String SECKILL_PREHEATED_SET = "seckill:preheated";
 

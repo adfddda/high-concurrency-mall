@@ -6,6 +6,8 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+import java.time.LocalDateTime;
+
 @Mapper
 public interface SeckillActivityMapper extends BaseMapper<SeckillActivity> {
 
@@ -50,4 +52,34 @@ public interface SeckillActivityMapper extends BaseMapper<SeckillActivity> {
                AND available_stock + #{num} <= total_stock
             """)
     int rollbackStock(@Param("activityId") Long activityId, @Param("num") int num);
+
+    /**
+     * 按时间推进活动状态：0 未开始 / 1 进行中 / 2 已结束。
+     *
+     * <p>为什么状态要由任务推进、而不是在查询时实时算：
+     * <ul>
+     *   <li>列表接口要支持"只看进行中"，实时算会让 SQL 无法走索引；</li>
+     *   <li>运营后台、对账、预热都依赖 status 字段做筛选。</li>
+     * </ul>
+     * 但状态是<b>时间的派生值</b>，一旦没有任务维护，它就会永远停在创建时的值——
+     * 这正是原实现的漏洞：种子数据写了 status=1，之后再也没有任何代码改过它，
+     * 于是"已结束的活动"在列表里永远是"进行中"。
+     *
+     * <p>用一条 UPDATE 做全表状态对齐：`WHERE status <> 新值` 保证只有状态
+     * 真正变化的行才会被写，正常运行时这条语句几乎不产生写入。
+     */
+    @Update("""
+            UPDATE t_seckill_activity
+               SET status = CASE
+                              WHEN start_time > #{now} THEN 0
+                              WHEN end_time <= #{now} THEN 2
+                              ELSE 1
+                            END
+             WHERE status <> CASE
+                              WHEN start_time > #{now} THEN 0
+                              WHEN end_time <= #{now} THEN 2
+                              ELSE 1
+                            END
+            """)
+    int syncStatus(@Param("now") LocalDateTime now);
 }

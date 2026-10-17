@@ -21,6 +21,7 @@
    KEYS[3] 在途计数           seckill:inflight:{act:N}
    ARGV[1] userId
    ARGV[2] 是否统计在途 "1"/"0"（关掉可省一次写，但对账能力会下降）
+   ARGV[3] 已购集合的 TTL（秒）——集合必须是"创建时就带过期"的
 
  返回码：
     0  扣减成功
@@ -58,7 +59,17 @@ end
 redis.call('DECR', stockKey)
 redis.call('SADD', boughtKey, userId)
 
--- 4. 在途计数：此刻 Redis 已经扣了库存，但订单还没落库。
+-- 4. 已购集合的 TTL 必须在【创建时】设置。
+--    预热阶段对一个还不存在的 Set 调 EXPIRE 是空操作（Redis 对不存在的 key
+--    设置过期时间直接返回 0），而 SADD 创建新 key 也不会继承任何过期时间。
+--    早期的写法是"预热时统一 EXPIRE 一次"，结果集合一创建就永久驻留，
+--    活动结束后还在吃内存。把 TTL 放进扣减脚本，是"谁创建谁负责"的一次性保证：
+--    TTL < 0 表示 key 没有过期时间（-1）或不存在（-2），此时才补设。
+if redis.call('TTL', boughtKey) < 0 then
+    redis.call('EXPIRE', boughtKey, tonumber(ARGV[3]))
+end
+
+-- 5. 在途计数：此刻 Redis 已经扣了库存，但订单还没落库。
 --    对账任务必须把这个数修掉，否则会把"正常在途"误判成"库存漂移"。
 if trackInflight == '1' then
     redis.call('INCR', inflightKey)

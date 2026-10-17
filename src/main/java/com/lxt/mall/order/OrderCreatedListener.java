@@ -7,6 +7,7 @@ import com.lxt.mall.metrics.MallMetrics;
 import com.lxt.mall.mq.ReliableMessageSender;
 import com.lxt.mall.order.event.OrderCreatedEvent;
 import com.lxt.mall.order.message.OrderTimeoutMessage;
+import com.lxt.mall.order.dto.OrderVO;
 import com.lxt.mall.seckill.SeckillResultService;
 import com.lxt.mall.seckill.SeckillStockService;
 import com.lxt.mall.seckill.message.SeckillOrderMessage;
@@ -54,9 +55,9 @@ public class OrderCreatedListener {
             log.warn("归还在途计数失败 activityId={}（不影响订单）", order.getActivityId(), e);
         }
 
-        // 2. 写入"抢购成功"结果，前端轮询能立刻拿到
+        // 2. 写入"抢购成功"结果 + 订单快照，前端轮询能立刻拿到且不落库
         try {
-            resultService.markSuccess(order.getOrderNo());
+            resultService.markSuccess(order.getOrderNo(), order.getUserId(), OrderVO.from(order));
         } catch (Exception e) {
             log.warn("写入秒杀成功结果失败 orderNo={}（轮询会回落到数据库）", order.getOrderNo(), e);
         }
