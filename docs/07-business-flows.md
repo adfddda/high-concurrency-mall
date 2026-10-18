@@ -743,114 +743,6 @@ erDiagram
 10. `SeckillReconcileService`：理解最终一致性。
 11. `ProductCacheService`：理解多级缓存完整链路。
 
-## 16. 普通交易板块（下单 / 支付 / 退款 / 履约）
-
-> 与秒杀的区别一句话：**这条链路是同步的**。用户点一下就要拿到订单号，
-> 而不是"排队中，请轮询"。代价是并发能力不如秒杀链路——但对常规交易来说，
-> 确定性比吞吐重要。
-
-### 16.1 普通下单
-
-```mermaid
-flowchart LR
-    A[提交 skuId + 数量 + 可选券] --> B[SELECT SKU 校验在售]
-    B --> C[UPDATE stock=stock-? WHERE stock>=?]
-    C -->|影响行数 0| X[库存不足，整体回滚]
-    C -->|成功| D{带券?}
-    D -->|是| E[校验门槛 + 券状态 0→1]
-    D -->|否| F[优惠为 0]
-    E --> G[INSERT t_order + t_order_item]
-    F --> G
-    G --> H[提交事务，返回订单号]
-```
-
-要点：
-
-1. **库存判断与扣减压进一条 UPDATE**，没有"查的时候有货、写的时候没了"的窗口；
-2. 库存、券、订单**同一个事务**，任何一步失败整体回滚（测试里专门断言
-   "未达门槛时库存和券都不能被扣"）；
-3. 订单快照（标题、单价）在此时固化——商品后续改价不影响已成交订单。
-
-### 16.2 支付
-
-```text
-POST /orders/{orderNo}/pay        → 创建支付单（uk_order_no 保证一单只有一笔）
-POST /payment/callback            → 渠道回调
-        ├─ 已成功            → 幂等返回成功，不重复记账
-        ├─ 金额不一致        → 拒绝 + 告警
-        ├─ 条件更新 0→1 失败 → 并发回调，读回确认
-        └─ 成功              → OrderService.pay（订单 0→1）
-```
-
-为什么支付单必须独立：一个订单可能多次支付尝试，且**回调幂等需要 paymentNo 粒度**。
-
-### 16.3 退款
-
-```text
-校验归属 → 查退款单（已存在则直接返回，幂等）
-        → UPDATE t_order SET status=4, active_flag=NULL WHERE status=1
-        → 回补库存（秒杀：活动库存 + Redis；普通：SKU 库存）
-        → 支付单置已退款
-        → 退还优惠券
-        → INSERT t_refund（uk_order_no）
-```
-
-三层幂等：状态机 / 退款单唯一键 / 回补挂在状态流转成功分支上。
-**已发货订单不能直接退款**——那要走退货流程，否则钱货两空。
-
-### 16.4 履约
-
-| 动作 | 接口 | 前置状态 | 之后 |
-|---|---|---|---|
-| 发货 | `POST /api/admin/orders/{no}/ship` | `PAID` | `SHIPPED` + `ship_time` |
-| 确认收货 | `POST /api/order/{no}/confirm` | `SHIPPED` | `FINISHED` + `finish_time` |
-| 自动确认 | `OrderAutoConfirmJob`（每小时） | `SHIPPED` 且超 7 天 | 同上 |
-
-自动确认不是可选项：它影响**商家结算**与**售后时效**，只靠用户点击会让大量订单永远停在已发货。
-
----
-
-## 17. 营销板块（购物车 / 优惠券 / 拼团）
-
-### 17.1 购物车
-
-- 模型：`(user_id, sku_id)` 唯一，一行一条目；加购用
-  `INSERT ... ON DUPLICATE KEY UPDATE quantity = LEAST(quantity + ?, 99)` 幂等累加；
-- **不存价格**：展示时实时读 SKU。存快照会出现"购物车 99、结算 129"；
-- 下架/无货**不删行**，只标记不可结算——用户加购的东西不能凭空消失。
-
-### 17.2 优惠券
-
-```text
-领券：UPDATE t_coupon_template SET issued_count = issued_count + 1
-       WHERE id = ? AND issued_count < total_count AND #{now} BETWEEN start_time AND end_time
-核销：UPDATE t_coupon SET status = 1, order_no = ?
-       WHERE id = ? AND user_id = ? AND status = 0 AND expire_time > #{now}
-还券：UPDATE t_coupon SET status = 0, order_no = NULL WHERE order_no = ? AND status = 1
-```
-
-三条语句分别防：超发、一券多单/盗用、退款吞券。
-
-### 17.3 拼团
-
-```text
-开团/参团 → 各自生成待支付订单（库存已扣），成员表 uk_group_user 防重复
-        ↓ 每笔支付成功
-   UPDATE 成员 status 0→1（只有改到行的那一次才继续）
-        ↓
-   UPDATE 团：先判成团、再自增 paid_count
-        ↓ 到期未成团
-   团置失败 → 未付关单 / 已付退款 / 库存回补
-```
-
-两个坑：
-
-1. **`SET` 顺序**：MySQL 会用已赋值的新值参与后续表达式，必须先判后增；
-2. **失败处理不能吞异常**：否则团被置为"已失败"但有人没退到款，而"已失败"的团
-   不会被再次扫描——这笔钱就永远挂在平台上。宁可整批回滚重试。
-
----
-
 ## 18. 秒杀抽签与风控
 
 ### 18.1 预约抽签
@@ -925,8 +817,6 @@ GET /api/product/search?keyword=
 | `SeckillReconcileJob` | 每分钟（默认） | 库存漂移、在途泄漏 |
 | `ActivityStatusSyncJob` | 30 秒 | 活动状态与时间不一致 |
 | `SeckillDrawJob` | 30 秒 | 抽签活动到点未开奖 |
-| `OrderAutoConfirmJob` | 1 小时 | 发货后长期未确认收货 |
-| `GroupBuyExpireJob` | 1 分钟 | 拼团到期未成团（退款/关单/回补） |
 
 > 共同原则：**实时链路负责快，定时任务负责不漏**。
 > 任何"靠消息触发的关键动作"都必须有一个按状态扫描的兜底任务。

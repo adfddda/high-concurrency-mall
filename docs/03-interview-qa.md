@@ -6089,10 +6089,10 @@ public ThreadPoolTaskScheduler mallTaskScheduler() {
 
 ---
 
-## 十五、V2 新增模块（13 题）
+## 十五、秒杀扩展与新中间件（7 题）
 
-> 这一节覆盖后来扩展出来的交易域与新中间件。**每题的"证据"都指向仓库里真实存在的测试或代码**，
-> 面试时可以直接说"这有测试守着"。
+> 这一节覆盖后来扩展出来的两种抢购形态（预约抽签、设备风控）、库存分桶，以及搜索/网关/分片。
+> **每题的"证据"都指向仓库里真实存在的测试或代码**，面试时可以直接说"这有测试守着"。
 
 ### Q106. 预约抽签是怎么削峰的？资格码为什么要放 Redis？
 
@@ -6165,98 +6165,6 @@ if mode == '1' then ... SREM ... end               -- 再消费资格码
 
 **证据：** `SeckillRiskGuardTest` 的 6 个用例，包括"同一设备换大小写不能绕过"、
 "活动维度隔离（A 活动用过不影响 B 活动）"。
-
----
-
-### Q110. 购物车为什么不存价格？加购并发怎么处理？
-
-**结论：** **不存价格**，因为购物车显示的是"参考价"、结算才是"成交价"。
-存快照会出现"购物车 99 元、结算 129 元"的投诉。反过来，**订单必须存快照**——
-订单是合同。这两个地方的要求正好相反。
-
-**加购并发**用一条 SQL：
-```sql
-INSERT INTO t_cart_item (...) VALUES (...)
-ON DUPLICATE KEY UPDATE quantity = LEAST(quantity + ?, 99)
-```
-"有就加数量、没有就插入"由数据库原子完成，应用层连重试都不用写。
-
-**证据：** `CartAndCouponTest#addToCartAccumulates`（重复加购只增数量）、
-`#cartUsesLivePrice`（调价后购物车立刻反映新价）。
-
----
-
-### Q111. 发券怎么防超发？怎么防一券多单？
-
-**结论：** 和库存扣减是**同一类问题**，用条件更新。
-
-| 动作 | SQL | 防什么 |
-|---|---|---|
-| 发放 | `SET issued_count = issued_count + 1 WHERE issued_count < total_count` | 超发 |
-| 核销 | `SET status = 1 WHERE status = 0 AND user_id = ?` | 一券多单 / 盗用他人券 |
-| 退券 | `SET status = 0 WHERE order_no = ? AND status = 1` | 退款吞券 |
-
-**判重还叠了一层唯一键** `uk_template_user`：两人同时领，一个必然撞唯一键。
-
----
-
-### Q112. 拼团成团判定为什么容易写错？
-
-**结论：** 因为 MySQL 的 `SET` 子句**会把已赋值的列用于后续表达式**。
-
-```sql
-SET paid_count = paid_count + 1,
-    status = CASE WHEN paid_count + 1 >= required_members THEN 1 ELSE status END   -- ❌ 用了新值
-```
-
-正确写法是**先判成团、再自增**：
-```sql
-SET status = CASE WHEN paid_count + 1 >= required_members THEN 1 ELSE status END,
-    paid_count = paid_count + 1
-```
-
-写反了**不报错**，只是团永远差一人才能成团——这类 bug 只能靠断言 `paid_count` 发现。
-
----
-
-### Q113. 拼团到期退款，为什么"不能吞异常"？
-
-**结论：** 因为"已失败"的团**不会被再次扫描**。
-
-如果逐成员 try/catch 后继续：团被置为"已失败"，但某个成员退款抛异常被吞掉 →
-下一轮任务只看 `status = 0` 的团 → **这笔钱永远挂在平台上**。
-
-正确做法：**让整批回滚**，团回到"进行中"，下一轮重试。
-退款/关单本身都是幂等的（退款单唯一键 + 订单状态机），重试安全。
-
-**代价：** 一个"毒团"会阻塞整批——所以必须配告警，而不是假装它不会发生。
-
----
-
-### Q114. 退款幂等为什么比支付幂等更难？
-
-**结论：** 支付重复是"多收钱"（渠道会挡），**退款重复是"多还库存"——直接超卖**。
-
-三层防线：
-
-1. 订单状态机 `PAID → REFUNDED`（条件更新，只有一个赢家）；
-2. `t_refund.uk_order_no`：一个订单最多一条退款单；
-3. 库存回补挂在**状态流转成功**的分支上，没抢到状态就不回补。
-
-**证据：** `CartAndCouponTest#refundRestoresCoupon`、
-`TradeFlowTest#refundRestoresStockAndIsIdempotent`（重复退款不多还库存）。
-
----
-
-### Q115. 已发货的订单为什么不能直接退款？
-
-**结论：** 会**钱货两空**。已发货要走「退货 → 验货 → 退款」的逆向流程。
-
-所以 `markRefunded` 的前驱状态是 `PAID` 而不是 `SHIPPED`；
-`FulfillmentTest#shippedOrderCannotBeRefunded` 专门断言了这一点。
-
-这也是为什么订单状态里 `CANCELED` 和 `REFUNDED` 必须分开：
-**取消发生在支付前（作废），退款发生在支付后（资金流出）**，业务链路完全不同。
 
 ---
 

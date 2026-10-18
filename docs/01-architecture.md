@@ -4,10 +4,10 @@
 >
 > 配套阅读：[02-关键设计决策](./02-key-design.md)（为什么这么选）、[03-面试题库](./03-interview-qa.md)、[04-压测报告](./04-benchmark.md)、[05-踩坑记录](./05-pitfalls.md)。
 >
-> **V2 说明**：项目已从"秒杀单体"扩展为一套交易系统。§1~§9 仍以**秒杀链路**为主线
-> （那是本项目最值得讲的一条链路，且大部分一致性机制都在这里）；
-> 交易域（SKU / 支付 / 退款 / 履约 / 优惠券 / 拼团）、抽签、风控、搜索与网关
-> 见文末 **§11~§13**。
+> **范围说明**：本项目聚焦「商品 + 秒杀」。§1~§9 讲秒杀主链路（大部分一致性机制都在这里），
+> 文末 **§12~§13** 补充后来加入的两种抢购形态（预约抽签、设备风控）与接入层（搜索、网关）。
+>
+> 更早的版本（含交易域 / 购物车 / 优惠券 / 拼团）保留在 git tag **`v2-full`**。
 
 ---
 
@@ -381,124 +381,21 @@ high-concurrency-mall/
 
 ---
 
-**V2 新增模块**（详见 §11~§13）
+**后续新增模块**（详见 §12~§13）
 
 | 包 / 类 | 职责 |
 |---|---|
-| `trade/TradeService` | SKU 普通下单（同步事务） |
-| `trade/CartService` · `CouponService` · `GroupBuyService` | 购物车 / 优惠券 / 拼团 |
-| `trade/PaymentService` · `RefundService` | 支付单与回调、退款 |
-| `order/FulfillmentService` | 发货 / 确认收货 / 自动确认 |
 | `seckill/ReservationService` · `SeckillRiskGuard` | 预约抽签、设备风控 |
+| `seckill/SeckillStockService`（分桶） | 可选库存分桶，消除单 key 热点 |
 | `search/` | Elasticsearch 索引与降级搜索 |
-| `job/` | 新增 4 个兜底任务（活动状态、开奖、自动确认、拼团到期） |
+| `job/` | 新增兜底任务（活动状态对齐、抽签开奖） |
 
 ---
 
-# 第二部分：交易域与接入层（V2）
+# 第二部分：抽签、风控与接入层
 
-> 上面九节讲的是**秒杀链路**。下面三节补齐后来扩展出来的部分：
-> 交易域（§11）、抽签与风控（§12）、搜索与网关（§13）。
-
-## 11. 交易域：普通下单 / 支付 / 退款 / 履约 / 券 / 拼团
-
-### 11.1 组件与职责
-
-| 组件 | 职责 | 关键约束 |
-|---|---|---|
-| `TradeService` | 普通下单：扣 SKU 库存 → 落订单 → 核销券 | 同步事务，任一失败全回滚 |
-| `PaymentService` | 支付单创建、渠道回调 | 回调幂等 + 金额校验 |
-| `RefundService` | 退款 | 订单状态机 + 退款单唯一键 |
-| `FulfillmentService` | 发货 / 确认收货 / 自动确认 | `PAID → SHIPPED → FINISHED` |
-| `CartService` | 购物车 | `(user_id, sku_id)` 唯一 + 幂等累加 |
-| `CouponService` | 领券 / 核销 / 还券 | 限量发放 + 一券一单 |
-| `GroupBuyService` | 开团 / 参团 / 成团 / 到期退款 | 成团判定只成功一次 |
-
-### 11.2 普通下单时序
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as 用户
-    participant T as TradeService
-    participant DB as MySQL
-    participant C as CouponService
-
-    U->>T: POST /api/trade/orders {skuId, quantity, couponId}
-    T->>DB: BEGIN
-    T->>DB: UPDATE t_sku SET stock=stock-? WHERE id=? AND stock>=?
-    DB-->>T: 影响行数 0 → 库存不足 / 1 → 成功
-    T->>C: useForOrder()：门槛校验 + 券状态 0→1
-    C-->>T: 优惠金额
-    T->>DB: INSERT t_order / t_order_item
-    T->>DB: COMMIT
-    T-->>U: 订单号 + 应付金额（立即返回）
-```
-
-与秒杀链路的对照：
-
-| 维度 | 秒杀 | 普通下单 |
-|---|---|---|
-| 库存载体 | Redis 预扣 + DB 兜底 | 直接条件更新 SKU |
-| 落库时机 | MQ 异步 | 同步事务 |
-| 用户感知 | 排队中 → 轮询 | 立即拿到订单 |
-| 一人一单 | 有（付费标记） | 无 |
-| 适用场景 | 瞬时高并发 | 常规交易 |
-
-> **这个对照本身就是设计结论**：不要给所有写路径都套 MQ 和缓存。
-
-### 11.3 支付单为什么要独立于订单
-
-一个订单可能对应**多次支付尝试**（关闭后重付、换渠道），而渠道流水号、回调时间
-是"这一次支付"的属性。更关键的是**回调幂等的粒度**：渠道重试带的是 `paymentNo`，
-幂等键必须能按支付单定位，挂在订单上就丢了这个维度。
-
-```sql
-UPDATE t_payment SET status = 1 WHERE payment_no = ? AND status = 0
-```
-
-影响行数为 1 才继续推进订单；为 0 时再读一次，若已是成功则**幂等返回成功**——
-支付网关对非 2xx 会持续重试，返回失败会导致"钱扣了、订单还是待支付"。
-
-### 11.4 退款的三层幂等
-
-退款比支付更危险：支付重复是"多收钱"（渠道会挡），退款重复是"**多还库存**"——直接超卖。
-
-1. 订单状态机 `PAID → REFUNDED`（条件更新，只有一个赢家）；
-2. `t_refund.uk_order_no`：一个订单最多一条退款单；
-3. 库存回补挂在**状态流转成功**的分支上，没抢到状态就不回补。
-
-### 11.5 履约：补上状态机里断掉的一环
-
-在加入履约之前，订单支付后永远停在 `PAID`，`FINISHED` 是一个**不可达的死状态**。
-现在：
-
-```text
-CREATED ──支付──► PAID ──发货──► SHIPPED ──确认/自动──► FINISHED
-   │                 │
-   └─超时/取消─► CANCELED ◄┘（仅未支付可取消）
-                     └──退款──► REFUNDED
-```
-
-- 只有管理端能发货，且 `PAID → SHIPPED` 只能成功一次（重复发货 = 重复结算）；
-- 用户确认与定时任务自动确认走**同一个条件更新**，只有一个能成功；
-- 自动确认按批处理（默认 200 单/次），大促后积压几十万笔也不会一次撑爆事务。
-
-### 11.6 优惠券与拼团
-
-两者都复用了秒杀那套"**有限资源 + 条件更新**"的思路：
-
-| 场景 | 语句 | 防什么 |
-|---|---|---|
-| 发券 | `SET issued_count = issued_count + 1 WHERE issued_count < total_count` | 超发 |
-| 核销 | `SET status = 1 WHERE status = 0 AND user_id = ?` | 一券多单 / 用别人的券 |
-| 还券 | `SET status = 0 WHERE order_no = ? AND status = 1` | 退款不还券 |
-| 成团 | `SET status = CASE WHEN paid_count+1 >= required THEN 1 ...`，**再** `paid_count+1` | 重复计数 / 永远差一人 |
-
-> 拼团那条 SQL 的 **SET 顺序**是易错点：MySQL 会把已赋值的列用于后续表达式，
-> 必须先判成团、再自增。写反了不报错，只是团永远成不了。
-
----
+> 上面九节讲的是**秒杀主链路**。下面两节补充后来扩展出来的部分：
+> 抽签与风控（§12）、搜索与网关（§13）。
 
 ## 12. 抽签与风控
 

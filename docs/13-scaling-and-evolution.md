@@ -49,7 +49,7 @@ t_order        → 4 库 × 4 表 = 16 片，分片键 user_id
 t_order_item   → 与 t_order 同分片键（user_id 冗余一列），保证订单+明细同片、单事务
 t_mq_message   → 不分片（按 message_id 全局唯一，是幂等闸门）
 t_seckill_*    → 不分片（活动表只有几十行；库存热点靠 Redis 分桶解决，不靠分库）
-t_user/t_sku   → 不分片
+t_user         → 不分片
 ```
 
 > 明细表冗余 `user_id` 是有意的：为了"订单与明细在同一分片、能在一个本地事务里写"。
