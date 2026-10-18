@@ -39,6 +39,9 @@ class SegmentStockTest extends BaseIntegrationTest {
     @Autowired
     private com.lxt.mall.seckill.SeckillStockService stockService;
 
+    @Autowired
+    private com.lxt.mall.seckill.SeckillReconcileService reconcileService;
+
     private SegmentStockManager newManager() {
         return new SegmentStockManager(redis, seckillClaimSegmentScript, properties);
     }
@@ -121,5 +124,27 @@ class SegmentStockTest extends BaseIntegrationTest {
         // 本地未售出是精确的：各卖 1 件后各剩 49（汇总要靠心跳上报，下一步实现）
         assertThat(first.unspent(ACTIVITY_ID)).isEqualTo(49);
         assertThat(second.unspent(ACTIVITY_ID)).isEqualTo(49);
+    }
+
+    @Test
+    @DisplayName("对账遇到本地库存段时跳过，而不是把健康系统当故障去修")
+    void reconcileSkipsWhenSegmentsAreHeld() {
+        prepareActivity(ACTIVITY_ID, 10);
+        preheatService.preheat(ACTIVITY_ID);
+
+        SegmentStockManager manager = newManager();
+        assertThat(manager.tryAcquire(ACTIVITY_ID)).isTrue();
+
+        // 此刻 Redis 库存 = 0，DB 库存 = 10 —— 天真算法会判定 drift = -10 并"修复"
+        assertThat(stockService.getStock(ACTIVITY_ID)).isZero();
+        assertThat(stockService.hasSegmentRegistration(ACTIVITY_ID)).isTrue();
+
+        var report = reconcileService.reconcileOne(ACTIVITY_ID, true);
+
+        assertThat(report.consistent()).isTrue();
+        assertThat(report.note()).contains("分段");
+        // 关键：自动修复没有被触发（否则会把 10 件库存按 0 写回去）
+        assertThat(report.repaired()).isFalse();
+        assertThat(stockService.getStock(ACTIVITY_ID)).isZero();
     }
 }

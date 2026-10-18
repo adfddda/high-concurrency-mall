@@ -116,6 +116,20 @@ public class SeckillReconcileService {
 
         Integer inflight = stockService.getInflight(activityId);
         int dbAvailable = activity.getAvailableStock();
+
+        // ---------- 分段模式：这笔账现在算不了，就不要乱算 ----------
+        // 开启本地分段后，"Redis 库存"少了并不等于卖掉了——少的那部分
+        // 正躺在某个实例的内存里。要算准必须知道"各实例还剩多少未售出"，
+        // 而那需要实例心跳上报（尚未实现）。
+        //
+        // 这里选择跳过而不是"尽力估算"：估错的后果是自动修复把健康库存改坏，
+        // 而跳过的后果只是这段时间暂不对账。**宁可不知道，也不要算错。**
+        if (stockService.hasSegmentRegistration(activityId)) {
+            return new ReconcileReport(activityId, activity.getActivityName(), redisStock, inflight,
+                    dbAvailable, 0, true, false,
+                    "分段模式：存在本地库存段，跳过 Redis 库存对齐（未售出上报未实现）");
+        }
+
         int expected = dbAvailable - inflight;
         int drift = redisStock - expected;
 

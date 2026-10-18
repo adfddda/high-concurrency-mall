@@ -249,6 +249,17 @@ public class SeckillStockService {
         return any ? sum : null;
     }
 
+    /**
+     * 该活动是否存在"本地库存段"登记。
+     *
+     * <p>存在登记意味着有库存已被某个实例领走、但还没卖出去，
+     * 此时 {@code Redis 库存} 与 {@code DB 库存 - 在途} 天然不相等。
+     */
+    public boolean hasSegmentRegistration(Long activityId) {
+        String key = "seckill:segment:{act:" + activityId + "}";
+        return Boolean.TRUE.equals(redis.hasKey(key));
+    }
+
     /** 在途计数总和。 */
     public Integer getInflight(Long activityId) {
         if (bucketCount <= 1) {
