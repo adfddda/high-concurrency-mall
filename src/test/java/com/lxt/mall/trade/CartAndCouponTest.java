@@ -135,12 +135,16 @@ class CartAndCouponTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    @DisplayName("领券幂等：重复领取返回同一张券")
+    @DisplayName("领券幂等：重复领取返回同一张券，且返回体带门槛与面额")
     void claimIsIdempotent() {
         CouponVO first = couponService.claim(TEMPLATE_ID, USER_ID);
         CouponVO second = couponService.claim(TEMPLATE_ID, USER_ID);
 
         assertThat(second.getId()).isEqualTo(first.getId());
+        // 这两个字段曾经缺失：claim 只做了 CouponVO.from(券)，没带上模板信息，
+        // 前端领完券拿不到"满 100 减 20"，只能再查一次列表。
+        assertThat(first.getThresholdAmount()).isEqualByComparingTo(THRESHOLD);
+        assertThat(first.getDiscountAmount()).isEqualByComparingTo(DISCOUNT);
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM t_coupon WHERE user_id = ?", Integer.class, USER_ID);
         assertThat(count).isEqualTo(1);

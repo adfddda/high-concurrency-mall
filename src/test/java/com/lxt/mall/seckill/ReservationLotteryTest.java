@@ -42,6 +42,12 @@ class ReservationLotteryTest extends BaseIntegrationTest {
     private SeckillPreheatService preheatService;
 
     @Autowired
+    private SeckillActivityService activityService;
+
+    @Autowired
+    private com.lxt.mall.admin.AdminController adminController;
+
+    @Autowired
     private StringRedisTemplate redis;
 
     private List<Long> reserveAll(long activityId, int n) {
@@ -162,5 +168,24 @@ class ReservationLotteryTest extends BaseIntegrationTest {
                 .isEqualTo(SeckillDeductResult.SOLD_OUT);
         assertThat(redis.opsForSet().isMember("seckill:codes:{act:" + LOTTERY_ACTIVITY + "}", code))
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("立即开抢：开抢后活动快照必须刷新，否则秒杀入口仍判未开始")
+    void openNowRefreshesSnapshot() {
+        prepareLotteryActivity(LOTTERY_ACTIVITY, STOCK);
+        preheatService.preheat(LOTTERY_ACTIVITY);
+
+        // 预约阶段：快照里的开始时间在未来
+        assertThat(activityService.getSnapshot(LOTTERY_ACTIVITY).getStartTime())
+                .isAfter(java.time.LocalDateTime.now());
+
+        assertThat(adminController.openNow(LOTTERY_ACTIVITY).getData()).isTrue();
+
+        // 开抢之后：快照必须是"已经开始"，否则入口会一直返回 20002
+        SeckillActivitySnapshot after = activityService.getSnapshot(LOTTERY_ACTIVITY);
+        assertThat(after.getStartTime())
+                .as("只失效本地缓存不够，Redis 快照也必须重建")
+                .isBeforeOrEqualTo(java.time.LocalDateTime.now());
     }
 }

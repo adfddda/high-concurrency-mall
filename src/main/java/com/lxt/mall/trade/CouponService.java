@@ -66,7 +66,7 @@ public class CouponService {
 
         Coupon existing = findByTemplateAndUser(templateId, userId);
         if (existing != null) {
-            return CouponVO.from(existing);
+            return withTemplate(existing);
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
@@ -88,7 +88,9 @@ public class CouponService {
             throw new BusinessException(ResultCode.COUPON_ALREADY_CLAIMED);
         }
         log.info("领券成功 userId={} templateId={} couponNo={}", userId, templateId, coupon.getCouponNo());
-        return CouponVO.from(coupon);
+        // 返回体与"我的券列表"保持一致：都带上门槛与面额。
+        // 否则前端领完券拿不到"满 100 减 20"这两个字段，还得再查一次列表。
+        return withTemplate(coupon);
     }
 
     public List<CouponVO> listMine(Long userId, Integer status) {

@@ -44,6 +44,7 @@ public class AdminController {
     private final com.lxt.mall.domain.mapper.SeckillRiskHitMapper riskHitMapper;
     private final com.lxt.mall.domain.mapper.SeckillActivityMapper activityMapper;
     private final com.lxt.mall.seckill.SeckillActivityService activityService;
+    private final com.lxt.mall.seckill.SeckillPreheatService preheatService;
     private final java.time.Clock clock;
 
     /** 商品缓存的 L1 命中统计。 */
@@ -170,6 +171,10 @@ public class AdminController {
         if (rows > 0) {
             // 本地快照缓存里还是旧的开始时间，必须失效
             activityService.evictLocal(activityId);
+            // 只失效本地还不够：Redis 里的活动快照仍然是"未来开始"，
+            // 秒杀入口读到的是旧时间，会直接返回"尚未开始"。
+            // 所以开抢之后必须重新预热，让快照跟上新的开始时间。
+            preheatService.preheat(activityId);
         }
         return Result.ok(rows > 0);
     }
