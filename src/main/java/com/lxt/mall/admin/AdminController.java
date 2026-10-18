@@ -39,7 +39,6 @@ public class AdminController {
     private final SeckillReconcileService reconcileService;
     private final MessageSendTracker sendTracker;
     private final LocalSoldOutCache localSoldOutCache;
-    private final com.lxt.mall.order.FulfillmentService fulfillmentService;
     private final com.lxt.mall.seckill.ReservationService reservationService;
     private final com.lxt.mall.domain.mapper.SeckillRiskHitMapper riskHitMapper;
     private final com.lxt.mall.domain.mapper.SeckillActivityMapper activityMapper;
@@ -120,17 +119,6 @@ public class AdminController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("pendingConfirms", sendTracker.pendingCount());
         return Result.ok(result);
-    }
-
-    /**
-     * 发货（管理端）。
-     *
-     * <p>放在 {@code /api/admin/**} 下，自动被管理员拦截器保护——
-     * 发货会触发商家结算与售后时效，绝不能由普通用户调用。
-     */
-    @PostMapping("/orders/{orderNo}/ship")
-    public Result<Boolean> ship(@PathVariable String orderNo) {
-        return Result.ok(fulfillmentService.ship(orderNo));
     }
 
     /**

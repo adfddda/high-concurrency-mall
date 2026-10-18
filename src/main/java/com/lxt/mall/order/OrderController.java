@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderService orderService;
-    private final FulfillmentService fulfillmentService;
     private final com.lxt.mall.seckill.SeckillStockService stockService;
 
     /**
@@ -54,7 +53,7 @@ public class OrderController {
      * <p>取消要同时做三件事，缺一不可：
      * <ol>
      *   <li>数据库：订单置为已取消，`active_flag` 置 NULL（否则无法再次购买）；</li>
-     *   <li>数据库：回补活动/SKU 库存（在 `cancelIfUnpaid` 的事务里完成）；</li>
+     *   <li>数据库：回补活动库存（在 `cancelIfUnpaid` 的事务里完成）；</li>
      *   <li>Redis：回补秒杀库存 <b>并释放购买资格</b>。</li>
      * </ol>
      * 第 3 步过去是缺失的——用户取消后 Redis 侧库存不回补、已购集合也不清理，
@@ -71,18 +70,5 @@ public class OrderController {
                     true, false);
         }
         return Result.ok(result.canceled());
-    }
-
-    /**
-     * 确认收货。
-     *
-     * <p>归属校验在 Service 里做（而不是像其他接口那样先 queryVO）：
-     * 确认收货只需要订单的归属信息，多查一次订单明细是浪费。
-     * 但校验本身不能省——否则任何人都能替别人确认收货，
-     * 提前触发商家结算。
-     */
-    @PostMapping("/{orderNo}/confirm")
-    public Result<Boolean> confirm(@PathVariable String orderNo) {
-        return Result.ok(fulfillmentService.confirm(orderNo, UserContext.requireUserId()));
     }
 }

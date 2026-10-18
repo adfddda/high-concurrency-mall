@@ -28,12 +28,12 @@ class OpenApiDocsTest extends BaseIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("OpenAPI 文档可公开访问，且包含秒杀与交易接口")
+    @DisplayName("OpenAPI 文档可公开访问，且包含秒杀下单接口")
     void apiDocsExposeBusinessEndpoints() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.info.title").value("高并发交易系统 API"))
                 .andExpect(jsonPath("$.paths['/api/seckill/activities/{activityId}/order']").exists())
-                .andExpect(jsonPath("$.paths['/api/trade/orders']").exists());
+                .andExpect(jsonPath("$.paths['/api/admin/seckill/{activityId}/reconcile']").exists());
     }
 }

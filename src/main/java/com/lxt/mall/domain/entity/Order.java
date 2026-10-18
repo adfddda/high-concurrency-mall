@@ -19,9 +19,8 @@ import java.time.LocalDateTime;
  * <p>注意三个唯一索引的分工（这是本项目幂等设计的地基）：
  * <ul>
  *   <li>{@code uk_order_no} —— 订单号幂等，重放同一订单号必然失败</li>
- *   <li>{@code uk_user_activity} —— 一人一单。Redis 的 Set 判定在
- *       「Redis 主从切换 / 缓存被清 / 投递失败回补」等场景下可能出现漏网，
- *       数据库这层是最后一道闸门</li>
+ *   <li>{@code uk_user_activity} —— 一人一单（带 {@code active_flag}：
+ *       取消/退款后置 NULL，允许再次购买，历史订单仍保留）</li>
  *   <li>{@code uk_message_id} —— 同一 MQ 消息重复投递时，
  *       第二条 INSERT 直接撞唯一键，比"先查再插"省掉一次竞态</li>
  * </ul>
@@ -43,14 +42,8 @@ public class Order implements Serializable {
 
     private Long userId;
 
-    /** 订单来源：0 秒杀 / 1 普通。见 {@link com.lxt.mall.domain.enums.OrderBizType}。 */
-    private Integer bizType;
-
-    /** 秒杀活动 ID；普通订单为 null（数据库唯一索引允许多个 NULL）。 */
+    /** 秒杀活动 ID。 */
     private Long activityId;
-
-    /** SKU ID；秒杀订单为 null（秒杀是单 SKU 特例，库存挂在活动上）。 */
-    private Long skuId;
 
     private Long productId;
 
@@ -62,12 +55,6 @@ public class Order implements Serializable {
     private Integer quantity;
 
     private BigDecimal payAmount;
-
-    /** 使用的优惠券 ID（未使用为 null）。 */
-    private Long couponId;
-
-    /** 优惠金额。pay_amount = 单价 × 数量 − discount_amount。 */
-    private BigDecimal discountAmount;
 
     private OrderStatus status;
 
@@ -84,12 +71,6 @@ public class Order implements Serializable {
     private LocalDateTime payTime;
 
     private LocalDateTime cancelTime;
-
-    /** 发货时间。自动确认收货的计时起点。 */
-    private LocalDateTime shipTime;
-
-    /** 完成时间（用户确认收货 / 系统自动确认）。 */
-    private LocalDateTime finishTime;
 
     /** 超时关单时间点，由延迟队列消息触达时校验，双保险。 */
     private LocalDateTime expireTime;

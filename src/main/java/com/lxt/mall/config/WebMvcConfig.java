@@ -39,10 +39,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         // 秒杀活动浏览：活动列表与详情是公开的
                         "/api/seckill/activities",
                         "/api/seckill/activities/running",
-                        // 普通交易：SKU 列表公开；支付回调由渠道调用，不带用户令牌，
-                        // 安全性靠验签（见 PaymentService 的注释）
-                        "/api/trade/skus",
-                        "/api/trade/payment/callback",
                         // 健康检查与监控
                         "/actuator/**",
                         // 接口文档（生产环境建议整体关闭，而不是只靠拦截）

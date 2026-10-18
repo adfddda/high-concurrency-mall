@@ -13,7 +13,6 @@ import com.lxt.mall.domain.entity.StockFlow;
 import com.lxt.mall.domain.enums.StockChangeType;
 import com.lxt.mall.domain.mapper.OrderMapper;
 import com.lxt.mall.domain.mapper.SeckillActivityMapper;
-import com.lxt.mall.domain.mapper.SkuMapper;
 import com.lxt.mall.domain.mapper.StockFlowMapper;
 import com.lxt.mall.order.dto.OrderVO;
 import lombok.RequiredArgsConstructor;
@@ -50,8 +49,6 @@ public class OrderService {
     private final OrderMapper orderMapper;
     private final SeckillActivityMapper activityMapper;
     private final StockFlowMapper stockFlowMapper;
-    private final SkuMapper skuMapper;
-    private final com.lxt.mall.trade.CouponService couponService;
     private final Clock clock;
 
     /**
@@ -94,56 +91,40 @@ public class OrderService {
 
         int quantity = order.getQuantity() == null ? 1 : order.getQuantity();
 
-        // 库存回补按订单来源分流：
-        //   秒杀订单 → 活动库存（带 total_stock 上限，且要写库存流水）
-        //   普通订单 → SKU 库存（无上限概念，退款/取消都是合法加法）
-        Integer totalStock = null;
-        SeckillActivity activity = null;
-        if (order.getActivityId() != null) {
-            // 条件回补：available_stock + quantity <= total_stock
-            int restored = activityMapper.rollbackStock(order.getActivityId(), quantity);
-            if (restored == 0) {
-                // 要么活动不存在，要么回补后会超总库存（说明之前已经回补过）。
-                // 不抛异常：订单取消本身是成功的，库存异常交给对账。
-                log.error("数据库库存回补失败（可能已回补或超总库存）orderNo={} activityId={} quantity={}",
-                        orderNo, order.getActivityId(), quantity);
-            }
-            // 同一事务内可以读到自己的更新，用它记录准确的变更前后值
-            activity = activityMapper.selectById(order.getActivityId());
-            totalStock = activity == null ? null : activity.getTotalStock();
-        } else if (order.getSkuId() != null) {
-            skuMapper.rollbackStock(order.getSkuId(), quantity);
+        // 条件回补：available_stock + quantity <= total_stock
+        int restored = activityMapper.rollbackStock(order.getActivityId(), quantity);
+        if (restored == 0) {
+            // 要么活动不存在，要么回补后会超总库存（说明之前已经回补过）。
+            // 不抛异常：订单取消本身是成功的，库存异常交给对账。
+            log.error("数据库库存回补失败（可能已回补或超总库存）orderNo={} activityId={} quantity={}",
+                    orderNo, order.getActivityId(), quantity);
+        }
+        // 同一事务内可以读到自己的更新，用它记录准确的变更前后值
+        SeckillActivity activity = activityMapper.selectById(order.getActivityId());
+        Integer totalStock = activity == null ? null : activity.getTotalStock();
+
+        // 库存流水：uk_order_change 保证同一订单的回补只落一次。
+        // 如果真的撞了唯一键，说明前面有并发路径已经回补过，
+        // 这里必须显式捕获并继续——抛出会导致整个取消事务回滚，
+        // 让一个已经完成的取消操作前功尽弃。
+        try {
+            StockFlow flow = new StockFlow();
+            flow.setId(IdWorker.getId());
+            flow.setActivityId(order.getActivityId());
+            flow.setOrderNo(orderNo);
+            flow.setUserId(order.getUserId());
+            flow.setChangeType(StockChangeType.ROLLBACK);
+            flow.setChangeNum(quantity);
+            flow.setStockBefore(activity == null ? 0 : activity.getAvailableStock() - quantity);
+            flow.setStockAfter(activity == null ? 0 : activity.getAvailableStock());
+            flow.setRemark(remark);
+            stockFlowMapper.insert(flow);
+        } catch (DuplicateKeyException e) {
+            log.warn("库存回补流水已存在，跳过写入 orderNo={}", orderNo);
         }
 
-        // 库存流水只对秒杀活动有意义（t_stock_flow.activity_id NOT NULL）：
-        // 它存在的目的是防重复回补，而 SKU 库存的回补幂等由订单状态机保证。
-        if (order.getActivityId() != null) {
-            // 库存流水：uk_order_change 保证同一订单的回补只落一次。
-            // 如果真的撞了唯一键，说明前面有并发路径已经回补过，
-            // 这里必须显式捕获并继续——抛出会导致整个取消事务回滚，
-            // 让一个已经完成的取消操作前功尽弃。
-            try {
-                StockFlow flow = new StockFlow();
-                flow.setId(IdWorker.getId());
-                flow.setActivityId(order.getActivityId());
-                flow.setOrderNo(orderNo);
-                flow.setUserId(order.getUserId());
-                flow.setChangeType(StockChangeType.ROLLBACK);
-                flow.setChangeNum(quantity);
-                flow.setStockBefore(activity == null ? 0 : activity.getAvailableStock() - quantity);
-                flow.setStockAfter(activity == null ? 0 : activity.getAvailableStock());
-                flow.setRemark(remark);
-                stockFlowMapper.insert(flow);
-            } catch (DuplicateKeyException e) {
-                log.warn("库存回补流水已存在，跳过写入 orderNo={}", orderNo);
-            }
-        }
-
-        log.info("订单已取消并归还库存 orderNo={} bizType={} activityId={} skuId={} quantity={}",
-                orderNo, order.getBizType(), order.getActivityId(), order.getSkuId(), quantity);
-
-        // 取消也还券：订单没成立，券不该被吞掉
-        couponService.restoreByOrder(orderNo);
+        log.info("订单已取消并归还库存 orderNo={} activityId={} quantity={}",
+                orderNo, order.getActivityId(), quantity);
 
         return new CancelResult(true, orderNo, order.getActivityId(), order.getUserId(), quantity, totalStock);
     }

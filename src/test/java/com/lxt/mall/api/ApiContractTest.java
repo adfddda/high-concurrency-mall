@@ -83,14 +83,14 @@ class ApiContractTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("参数校验：数量为 0 时返回 40000，不会进入业务逻辑")
-    void invalidBodyRejectedBeforeBusinessLogic() throws Exception {
+    @DisplayName("缺少必填参数时返回 40000，不会进入业务逻辑")
+    void missingParameterRejectedBeforeBusinessLogic() throws Exception {
         String token = login("testuser1");
 
-        mockMvc.perform(post("/api/trade/orders")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"skuId\":3001,\"quantity\":0}"))
+        // /api/product/search 的 keyword 是必填参数：
+        // 缺参数应该在参数解析阶段就被拦下（40000），而不是进业务后再报错
+        mockMvc.perform(get("/api/product/search")
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(40000));
     }

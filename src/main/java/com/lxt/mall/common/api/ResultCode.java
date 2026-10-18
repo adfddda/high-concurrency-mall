@@ -51,25 +51,7 @@ public enum ResultCode {
     ORDER_NOT_FOUND(30001, "订单不存在"),
     ORDER_STATUS_CONFLICT(30002, "订单状态已变更，操作失败"),
     ORDER_EXPIRED(30003, "订单已超时关闭"),
-    ORDER_PAID(30004, "订单已支付"),
-
-    // ---------------- 交易域 3xxxx（SKU / 支付 / 退款） ----------------
-    SKU_NOT_FOUND(30010, "规格不存在或已下架"),
-    SKU_STOCK_NOT_ENOUGH(30011, "库存不足"),
-    PAYMENT_NOT_FOUND(30020, "支付单不存在"),
-    PAYMENT_AMOUNT_MISMATCH(30021, "支付金额与订单金额不一致"),
-    PAYMENT_STATUS_CONFLICT(30022, "支付单状态已变更，操作失败"),
-    REFUND_NOT_ALLOWED(30030, "当前订单状态不支持退款"),
-    REFUND_AMOUNT_MISMATCH(30031, "退款金额与支付金额不一致"),
-    COUPON_NOT_FOUND(30040, "优惠券不存在"),
-    COUPON_SOLD_OUT(30041, "优惠券已领完"),
-    COUPON_ALREADY_CLAIMED(30042, "您已领取过该优惠券"),
-    COUPON_THRESHOLD_NOT_MET(30043, "订单金额未达到优惠券使用门槛"),
-    COUPON_UNAVAILABLE(30044, "优惠券不可用或已被使用"),
-    GROUP_NOT_FOUND(30050, "拼团不存在"),
-    GROUP_ALREADY_JOINED(30051, "您已参加过该拼团"),
-    GROUP_CLOSED(30052, "该拼团已结束"),
-    GROUP_EXPIRED(30053, "该拼团已过期");
+    ORDER_PAID(30004, "订单已支付");
 
     private final int code;
     private final String message;

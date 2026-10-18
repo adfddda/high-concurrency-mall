@@ -45,10 +45,6 @@ public class OrderVO implements Serializable {
 
     private LocalDateTime expireTime;
 
-    private LocalDateTime shipTime;
-
-    private LocalDateTime finishTime;
-
     public static OrderVO from(Order order) {
         OrderStatus status = order.getStatus();
         return new OrderVO(order.getOrderNo(), order.getActivityId(), order.getProductId(),
@@ -56,7 +52,6 @@ public class OrderVO implements Serializable {
                 order.getPayAmount(),
                 status == null ? null : status.getCode(),
                 status == null ? null : status.getDesc(),
-                order.getCreateTime(), order.getPayTime(), order.getCancelTime(), order.getExpireTime(),
-                order.getShipTime(), order.getFinishTime());
+                order.getCreateTime(), order.getPayTime(), order.getCancelTime(), order.getExpireTime());
     }
 }

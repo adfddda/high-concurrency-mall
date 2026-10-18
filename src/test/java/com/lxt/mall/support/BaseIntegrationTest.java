@@ -67,17 +67,9 @@ public abstract class BaseIntegrationTest {
 
     @BeforeEach
     void resetState() {
-        // 删除顺序无所谓（没有外键），但要把交易域的新表一起清掉：
-        // 支付单 / 退款单的 uk_order_no 会跨用例残留，导致第二个用例的
-        // "首次支付"被误判为"重复支付"。
-        jdbcTemplate.execute("DELETE FROM t_refund");
-        jdbcTemplate.execute("DELETE FROM t_payment");
-        jdbcTemplate.execute("DELETE FROM t_coupon");
-        jdbcTemplate.execute("DELETE FROM t_cart_item");
-        jdbcTemplate.execute("DELETE FROM t_group_buy_member");
-        jdbcTemplate.execute("DELETE FROM t_group_buy");
+        // 删除顺序无所谓（没有外键）。
         // 预约记录按 (activity_id, user_id) 唯一，不清会让下一个用例
-        // 直接复用上一个用例的预约，抽签结果天然不对
+        // 直接复用上一个用例的预约，抽签结果天然不对。
         jdbcTemplate.execute("DELETE FROM t_seckill_reservation");
         jdbcTemplate.execute("DELETE FROM t_seckill_risk_hit");
         jdbcTemplate.execute("DELETE FROM t_order_item");
