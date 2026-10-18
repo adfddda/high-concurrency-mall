@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-101%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-102%20passed-success">
 </p>
 
 ---
@@ -58,7 +58,7 @@ flowchart LR
 | 数据表 | **17** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
 | 代码规模 | **12,003** 行 Java（业务 9,465 + 测试 2,179 + 网关 359）+ **7,631** 行设计文档 |
-| 自动化测试 | **101** 个用例（96 业务 + 5 网关），含 800 并发不超卖、MQ 全挂演练 |
+| 自动化测试 | **102** 个用例（97 业务 + 5 网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
