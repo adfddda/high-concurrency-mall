@@ -1,12 +1,9 @@
 package com.lxt.mall.order;
 
-import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.lxt.mall.config.MallProperties;
 import com.lxt.mall.domain.entity.Order;
 import com.lxt.mall.metrics.MallMetrics;
-import com.lxt.mall.mq.ReliableMessageSender;
 import com.lxt.mall.order.event.OrderCreatedEvent;
-import com.lxt.mall.order.message.OrderTimeoutMessage;
 import com.lxt.mall.order.dto.OrderVO;
 import com.lxt.mall.seckill.SeckillResultService;
 import com.lxt.mall.seckill.SeckillStockService;
@@ -39,7 +36,6 @@ public class OrderCreatedListener {
 
     private final SeckillStockService stockService;
     private final SeckillResultService resultService;
-    private final com.lxt.mall.mq.MessagePublisher messageSender;
     private final MallProperties properties;
     private final MallMetrics metrics;
 
@@ -62,17 +58,9 @@ public class OrderCreatedListener {
             log.warn("写入秒杀成功结果失败 orderNo={}（轮询会回落到数据库）", order.getOrderNo(), e);
         }
 
-        // 3. 投递延迟关单消息
-        OrderTimeoutMessage timeoutMessage = new OrderTimeoutMessage(
-                IdWorker.getIdStr(),
-                order.getOrderNo(),
-                order.getId(),
-                order.getActivityId(),
-                order.getUserId(),
-                order.getQuantity(),
-                msg == null ? null : msg.getTotalStock(),
-                order.getExpireTime());
-        messageSender.sendOrderTimeout(timeoutMessage);
+        // 3. 延迟关单消息：已由 OrderCreationService 写入 Outbox（与订单同事务），
+        //    这里不再直接发送。直接发的版本在"订单已提交、消息未发出"的瞬间崩溃就丢消息，
+        //    订单永远不会被自动关闭，库存被占用到活动结束。
 
         metrics.mqEvent("seckill", "order_created");
         log.debug("订单收尾完成 orderNo={} expireTime={} 超时配置={}",

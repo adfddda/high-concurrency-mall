@@ -1,7 +1,7 @@
-# 数据库全量讲解 —— 9 张表各自是干什么用的
+# 数据库全量讲解 —— 10 张表各自是干什么用的
 
 > 本文是 [11-database-design.md](11-database-design.md) 的**全量版**。
-> 11 号文档以"为什么要有这些表"入门；本文覆盖当前全部 **9 张表**，
+> 11 号文档以"为什么要有这些表"入门；本文覆盖当前全部 **10 张表**，
 > 每张表回答三个问题：**存什么、谁写谁读、哪个约束在防什么事故**。
 >
 > 建库脚本：`src/main/resources/db/01-schema.sql`（全部幂等 `CREATE TABLE IF NOT EXISTS`，可重复执行）。
@@ -10,7 +10,7 @@
 
 ---
 
-## 0. 全景：9 张表按职责分组
+## 0. 全景：10 张表按职责分组
 
 ```mermaid
 flowchart LR
@@ -32,6 +32,7 @@ flowchart LR
     end
     subgraph 可靠性
         MQ[t_mq_message]
+        OB[t_outbox]
     end
 
     P --> ACT --> O
@@ -52,6 +53,7 @@ flowchart LR
 | `t_order` | 订单 | `uk_order_no`、`uk_user_activity`、`uk_message_id` |
 | `t_order_item` | 订单明细 | — |
 | `t_mq_message` | 消息投递/消费台账 | `uk_message_id` |
+| `t_outbox` | 本地消息表（待投递消息） | `uk_message_id` |
 | `t_stock_flow` | 库存流水 | `uk_order_change` |
 
 ---
@@ -153,7 +155,22 @@ flowchart LR
 
 ---
 
-## 9. `t_stock_flow` — 库存流水
+## 9. `t_outbox` — 本地消息表
+
+- **存什么**：待投递的消息（目前是延迟关单消息）、状态、重试次数、下次重试时间、失败原因。
+- **谁写**：`OrderCreationService` 在**创建订单的同一个事务**里插入（status=0）；`OutboxRelayJob` 轮询投递并置 1。
+- **谁读**：`OutboxRelayService`（每 2 秒取一批 status=0 且到期的记录）。
+- **它解决的事故**：订单在 MySQL、消息在 RabbitMQ，两个事务无法原子提交。
+  先提交订单再发消息，进程在中间崩溃就**永久丢消息**——订单不会被自动关闭，库存在整个活动周期被占用。
+  写进 outbox 之后，"消息待发送"由数据库事务保证：订单在 ⇒ 记录在；订单回滚 ⇒ 记录不在。
+- **重试耗尽（status=2）意味着什么**：不是"自动放弃"，而是**要人看 `last_error`**。
+  无限重试会把消息系统变成噪声源，也会掩盖真正的问题。
+
+> 注意：**秒杀入口的消息不走 outbox**。入口的设计前提是"完全不碰数据库"，
+> 在那里写 outbox 会把数据库重新放回热路径。入口侧靠 Redis 预扣 + 补偿 + 对账兜底。
+
+---
+## 10. `t_stock_flow` — 库存流水
 
 - **存什么**：每次库存变更的类型（扣减/回补）、数量、变更前后值、备注。
 - **谁写**：下单扣减、取消/退款回补、对账修复。
@@ -164,7 +181,7 @@ flowchart LR
 
 ---
 
-## 10. 表之间的关系（一句话版）
+## 11. 表之间的关系（一句话版）
 
 ```text
 用户 --1:N--> 订单 <--N:1-- 活动 <--1:N-- 商品

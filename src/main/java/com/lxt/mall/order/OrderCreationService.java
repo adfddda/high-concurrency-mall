@@ -4,14 +4,18 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.lxt.mall.config.MallProperties;
 import com.lxt.mall.domain.entity.Order;
 import com.lxt.mall.domain.entity.OrderItem;
+import com.lxt.mall.domain.entity.OutboxMessage;
 import com.lxt.mall.domain.entity.SeckillActivity;
 import com.lxt.mall.domain.entity.StockFlow;
 import com.lxt.mall.domain.enums.OrderStatus;
 import com.lxt.mall.domain.enums.StockChangeType;
 import com.lxt.mall.domain.mapper.OrderItemMapper;
 import com.lxt.mall.domain.mapper.OrderMapper;
+import com.lxt.mall.domain.mapper.OutboxMessageMapper;
 import com.lxt.mall.domain.mapper.SeckillActivityMapper;
 import com.lxt.mall.domain.mapper.StockFlowMapper;
+import com.lxt.mall.common.util.JsonUtils;
+import com.lxt.mall.order.message.OrderTimeoutMessage;
 import com.lxt.mall.mq.MqMessageService;
 import com.lxt.mall.mq.exception.DuplicateMessageException;
 import com.lxt.mall.mq.exception.DuplicateOrderException;
@@ -53,6 +57,7 @@ public class OrderCreationService {
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
+    private final OutboxMessageMapper outboxMapper;
     private final SeckillActivityMapper activityMapper;
     private final StockFlowMapper stockFlowMapper;
     private final MqMessageService mqMessageService;
@@ -145,7 +150,23 @@ public class OrderCreationService {
         flow.setRemark("秒杀下单扣减");
         stockFlowMapper.insert(flow);
 
-        // ---------- 6. 提交后的副作用 ----------
+        // ---------- 6. Outbox：延迟关单消息与订单同事务落库 ----------
+        // 不在事务提交后"直接发"——那样进程在这一瞬间崩溃就永久丢消息，
+        // 订单再也不会被自动关闭。写进 outbox 之后，由 OutboxRelayJob 轮询投递。
+        OrderTimeoutMessage timeoutMessage = new OrderTimeoutMessage(
+                IdWorker.getIdStr(), order.getOrderNo(), order.getId(), order.getActivityId(),
+                order.getUserId(), quantity, msg.getTotalStock(), order.getExpireTime());
+        OutboxMessage outbox = new OutboxMessage();
+        outbox.setId(IdWorker.getId());
+        outbox.setMessageId(timeoutMessage.getMessageId());
+        outbox.setBizType("ORDER_TIMEOUT");
+        outbox.setPayload(JsonUtils.toJson(timeoutMessage));
+        outbox.setStatus(0);
+        outbox.setRetryCount(0);
+        outbox.setNextRetryTime(java.time.LocalDateTime.now(clock));
+        outboxMapper.insert(outbox);
+
+        // ---------- 7. 提交后的副作用 ----------
         // 由 OrderCreatedListener 在 AFTER_COMMIT 阶段处理
         eventPublisher.publishEvent(new OrderCreatedEvent(this, order, msg));
 

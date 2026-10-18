@@ -76,6 +76,7 @@ public abstract class BaseIntegrationTest {
         jdbcTemplate.execute("DELETE FROM t_order");
         jdbcTemplate.execute("DELETE FROM t_stock_flow");
         jdbcTemplate.execute("DELETE FROM t_mq_message");
+        jdbcTemplate.execute("DELETE FROM t_outbox");
 
         redis.execute((RedisCallback<Void>) connection -> {
             connection.serverCommands().flushDb();

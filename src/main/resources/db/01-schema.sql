@@ -225,6 +225,42 @@ CREATE TABLE IF NOT EXISTS t_mq_message
 
 
 -- ============================================================================
+--  本地消息表（Outbox）
+--
+--  解决什么问题：
+--   "订单落库成功"和"延迟关单消息投递成功"是两个不同的事务——前者在 MySQL，
+--   后者在 RabbitMQ。如果先提交订单再发消息，进程在这一瞬间崩溃，消息就丢了：
+--   订单永远不会被自动关闭，库存在整个活动周期内被占用。
+--
+--  做法：在**创建订单的同一个事务**里写一条 outbox 记录（status=0 待发送），
+--  由独立的 relay 任务轮询投递，成功才置 1。于是"消息一定会被尝试投递"
+--  由数据库的事务性保证，而不是靠进程不崩溃。
+--
+--  为什么入口的秒杀消息不走这里：
+--   秒杀入口的设计前提是"完全不碰数据库"。在那里写 outbox 会把数据库
+--   重新放回热路径。入口那一侧靠 Redis 预扣 + 补偿 + 对账兜底。
+--  ============================================================================
+CREATE TABLE IF NOT EXISTS t_outbox
+(
+    id              BIGINT UNSIGNED NOT NULL COMMENT '主键（雪花）',
+    message_id      VARCHAR(64)     NOT NULL COMMENT '消息唯一 ID（投递幂等键）',
+    biz_type        VARCHAR(32)     NOT NULL COMMENT 'ORDER_TIMEOUT ...',
+    payload         TEXT            NOT NULL COMMENT '消息体 JSON',
+    status          TINYINT         NOT NULL DEFAULT 0 COMMENT '0待发送 1已发送 2重试耗尽',
+    retry_count     INT             NOT NULL DEFAULT 0,
+    next_retry_time DATETIME(3)     NOT NULL COMMENT '下次可投递时间（失败退避）',
+    last_error      VARCHAR(512)             DEFAULT NULL,
+    create_time     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    update_time     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_message_id (message_id),
+    KEY idx_status_next (status, next_retry_time)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_general_ci COMMENT ='本地消息表（Outbox）';
+
+
+-- ============================================================================
 --  库存流水：可追溯 + 防重复回补
 --  uk_order_change(order_no, change_type) 是「同一订单同一类变更只能落一次」
 --  的硬约束。超时关单回补与死信回补同时发生时，只有一个能成功。

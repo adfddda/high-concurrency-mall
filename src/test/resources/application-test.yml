@@ -87,9 +87,7 @@ mall:
       enabled: false
     activity-status:
       enabled: false
-    auto-confirm:
-      enabled: false
     seckill-draw:
       enabled: false
-    group-buy-expire:
+    outbox:
       enabled: false
