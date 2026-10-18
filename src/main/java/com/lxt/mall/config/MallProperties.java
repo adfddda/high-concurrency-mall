@@ -117,6 +117,30 @@ public class MallProperties {
          * </ol>
          */
         private int bucketCount = 1;
+
+        /**
+         * 本地库存分段（实验特性，默认关闭）。
+         *
+         * <p>开启后实例从 Redis 一次性领走 {@code segmentSize} 件库存，
+         * 后续请求在本地内存扣减，把"每请求一次 Redis"降到"每 N 请求一次"。
+         *
+         * <p><b>代价</b>：本地去重换吞吐——同一用户打到不同实例时会退化成
+         * 数据库唯一索引兜底，产生少量"到落库才失败"的请求。
+         * 这是吞吐与失败率之间的显式取舍，不适合默认开启。
+         */
+        private boolean segmentEnabled = false;
+
+        /** 每次领取的段大小。 */
+        private int segmentSize = 50;
+
+        /**
+         * 段登记的 TTL。
+         *
+         * <p>它是<b>崩溃回收的时钟</b>：实例崩溃后不再续期，
+         * TTL 到期即视为"这批库存没人管了"，由对账补回。
+         * 所以它必须明显大于一次压测或一次正常请求的处理时间。
+         */
+        private Duration segmentTtl = Duration.ofSeconds(60);
     }
 
     @Data

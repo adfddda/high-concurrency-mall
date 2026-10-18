@@ -3,6 +3,7 @@ package com.lxt.mall.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.util.StreamUtils;
@@ -48,6 +49,28 @@ public class RedisConfig {
     @Bean
     public RedisScript<Long> seckillInflightDecScript() {
         return loadLongScript("lua/seckill_inflight_dec.lua");
+    }
+
+    @Bean
+    public RedisScript<Long> seckillClaimSegmentScript() {
+        return loadLongScript("lua/seckill_claim_segment.lua");
+    }
+
+    /**
+     * 本地库存分段管理器：默认不创建（{@code mall.seckill.segment-enabled=false}）。
+     *
+     * <p>它用"本地去重"换吞吐，会产生少量"到落库才失败"的请求，
+     * 属于需要显式开启的实验特性——不开启时连 Bean 都不存在，
+     * 扣减链路走原来的单次 Lua，行为与之前完全一致。
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "mall.seckill.segment-enabled", havingValue = "true")
+    public com.lxt.mall.seckill.SegmentStockManager segmentStockManager(
+            StringRedisTemplate redis,
+            RedisScript<Long> seckillClaimSegmentScript,
+            com.lxt.mall.config.MallProperties properties) {
+        return new com.lxt.mall.seckill.SegmentStockManager(redis, seckillClaimSegmentScript, properties);
     }
 
     @Bean

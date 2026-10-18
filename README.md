@@ -10,7 +10,7 @@
 <img alt="mysql" src="https://img.shields.io/badge/MySQL-8.0-blue">
 <img alt="redis" src="https://img.shields.io/badge/Redis-6.0%2B-red">
 <img alt="rabbitmq" src="https://img.shields.io/badge/RabbitMQ-3.13-ff69b4">
-<img alt="tests" src="https://img.shields.io/badge/tests-79%20passed-success">
+<img alt="tests" src="https://img.shields.io/badge/tests-83%20passed-success">
 </p>
 
 ---
@@ -55,8 +55,8 @@ flowchart LR
 | REST 接口 | **31** 个（认证 / 商品 / 秒杀 / 订单 / 运维可观测） |
 | 数据表 | **10** 张，唯一索引 + `CHECK` 约束兜底 |
 | Redis Lua 脚本 | **5** 个（扣减 / 回补 / 在途回收 / 滑动窗口 / 令牌桶） |
-| 代码规模 | **9,756** 行 Java（业务 7,656 + 测试 1,741）+ 网关 359 |
-| 自动化测试 | **79** 个（74 业务 + 5 网关），含 800 并发不超卖、MQ 全挂演练 |
+| 代码规模 | **9,997** 行 Java（业务 7,803 + 测试 1,835）+ 网关 359 |
+| 自动化测试 | **83** 个（78 业务 + 5 网关），含 800 并发不超卖、MQ 全挂演练 |
 | 单机吞吐 | **13,102 QPS**，服务端平均 **1.118 ms/请求** |
 
 ---
@@ -320,7 +320,7 @@ src/main/java/com/lxt/mall/
 
 ## 测试与 CI
 
-- **79 个测试**：74 个业务（并发/幂等/状态机/缓存/限流/抽签/风控/分桶/接口契约）+ 5 个网关
+- **83 个测试**：78 个业务（并发/幂等/状态机/缓存/限流/抽签/风控/分桶/接口契约）+ 5 个网关
 - **CI 三个 job**：`mvn verify`（起真实 MySQL / Redis / RabbitMQ / **Elasticsearch**）、Docker 镜像、网关构建
 - **集成测试用真中间件**，不用 H2 / embedded-redis——本项目一半的价值在"和真中间件打交道的行为"
 
